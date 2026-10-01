@@ -1,0 +1,12 @@
+/build/
+/.cache/
+*.o
+*.so
+*.a
+*.swp
+*~
+.DS_Store
+.env
+.env.*
+*.keystore
+credentials.json

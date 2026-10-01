@@ -1,0 +1,6 @@
+<!-- @license lucide-static style - ISC -->
+<svg class="lucide lucide-boolean-intersect" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M9 3H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4" stroke-opacity="0.4" />
+  <path d="M15 21h4a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-4" stroke-opacity="0.4" />
+  <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" fill-opacity="0.25" stroke="currentColor" />
+</svg>

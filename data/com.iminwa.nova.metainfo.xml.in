@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.iminwa.nova</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Nova</name>
+  <summary>Native vector design and layout tool for GNOME</summary>
+  <description>
+    <p>
+      Nova is a modern, distraction-free vector design and prototyping application built with Vala, GTK 4, and Libadwaita.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/iminwa/nova</url>
+  <provides>
+    <binary>nova</binary>
+  </provides>
+</component>

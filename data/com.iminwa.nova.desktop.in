@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Nova
+Comment=Native vector design and layout tool for GNOME
+Exec=nova
+Icon=com.iminwa.nova
+Terminal=false
+Type=Application
+Categories=GNOME;GTK;Graphics;VectorGraphics;
+StartupNotify=true
+MimeType=image/svg+xml;
