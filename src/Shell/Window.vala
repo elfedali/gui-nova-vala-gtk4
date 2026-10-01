@@ -30,9 +30,6 @@ namespace Nova {
         private string current_shape_tool = "rect";
         private string current_draw_tool = "pen";
         private bool updating_tools = false;
-        private bool frame_press_active = false;
-        private bool shape_press_active = false;
-        private bool draw_press_active = false;
 
         // Inspector widgets
         private Gtk.Box alignment_box;
@@ -104,6 +101,10 @@ namespace Nova {
         private bool layer_rename_done = false;
 
         private Gtk.Label zoom_label;
+        private Gtk.Entry zoom_entry;
+        private Gtk.Popover zoom_popover;
+        private Gtk.Button[] zoom_preset_buttons;
+        private int[] zoom_preset_values;
         private bool updating_inspector = false;
         private GLib.HashTable<string, bool> collapsed_frames;
 
@@ -179,9 +180,7 @@ namespace Nova {
             });
             right_box.append(zoom_out_btn);
 
-            zoom_label = new Gtk.Label("100%");
-            zoom_label.add_css_class("nova-stat-pill");
-            right_box.append(zoom_label);
+            right_box.append(build_zoom_menu());
 
             var zoom_in_btn = Icons.create_lucide_button("zoom-in", "Zoom In", 16);
             zoom_in_btn.clicked.connect(() => {
@@ -201,6 +200,90 @@ namespace Nova {
 
             header.pack_end(right_box);
             return header;
+        }
+
+        private Gtk.MenuButton build_zoom_menu() {
+            zoom_label = new Gtk.Label("100%");
+            zoom_label.add_css_class("nova-stat-pill");
+
+            var face = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 2);
+            face.append(zoom_label);
+            face.append(Icons.create_lucide_image("chevron-down", 12));
+
+            var button = new Gtk.MenuButton();
+            button.add_css_class("flat");
+            button.add_css_class("nova-zoom-btn");
+            button.tooltip_text = "Zoom";
+            button.direction = Gtk.ArrowType.DOWN;
+            button.has_frame = false;
+            button.child = face;
+
+            zoom_popover = new Gtk.Popover();
+            zoom_popover.position = Gtk.PositionType.BOTTOM;
+            zoom_popover.add_css_class("nova-zoom-popover");
+
+            var menu = new Gtk.Box(Gtk.Orientation.VERTICAL, 4);
+            menu.margin_top = 6;
+            menu.margin_bottom = 6;
+            menu.margin_start = 6;
+            menu.margin_end = 6;
+
+            zoom_entry = new Gtk.Entry();
+            zoom_entry.add_css_class("nova-zoom-entry");
+            zoom_entry.placeholder_text = "Zoom %";
+            zoom_entry.tooltip_text = "Type a zoom percent and press Enter";
+            zoom_entry.activate.connect(() => apply_zoom_entry());
+            menu.append(zoom_entry);
+
+            zoom_preset_values = { 25, 50, 75, 100, 150, 200, 400, 800 };
+            zoom_preset_buttons = new Gtk.Button[zoom_preset_values.length];
+            for (int i = 0; i < zoom_preset_values.length; i++) {
+                int pct = zoom_preset_values[i];
+                int index = i;
+                var item = new Gtk.Button.with_label("%d%%".printf(pct));
+                item.add_css_class("flat");
+                item.add_css_class("nova-dock-menu-item");
+                item.clicked.connect(() => {
+                    apply_zoom_percent(pct);
+                    zoom_popover.popdown();
+                });
+                menu.append(item);
+                zoom_preset_buttons[index] = item;
+            }
+
+            zoom_popover.child = menu;
+            zoom_popover.show.connect(() => {
+                zoom_entry.text = "%d".printf(canvas.get_zoom_percentage());
+                mark_zoom_preset();
+                GLib.Idle.add(() => {
+                    zoom_entry.grab_focus();
+                    zoom_entry.select_region(0, -1);
+                    return GLib.Source.REMOVE;
+                });
+            });
+            button.popover = zoom_popover;
+            return button;
+        }
+
+        private void apply_zoom_entry() {
+            string text = zoom_entry.text.strip().replace("%", "");
+            double pct;
+            if (!double.try_parse(text, out pct)) return;
+            apply_zoom_percent((int) Math.round(pct));
+            zoom_popover.popdown();
+        }
+
+        private void apply_zoom_percent(int pct) {
+            double zoom = pct / 100.0;
+            canvas.zoom_at(zoom, canvas.get_width() / 2.0, canvas.get_height() / 2.0);
+        }
+
+        private void mark_zoom_preset() {
+            int current = canvas.get_zoom_percentage();
+            for (int i = 0; i < zoom_preset_buttons.length; i++) {
+                if (zoom_preset_values[i] == current) zoom_preset_buttons[i].add_css_class("active");
+                else zoom_preset_buttons[i].remove_css_class("active");
+            }
         }
 
         private void build_layout(Adw.HeaderBar header) {
@@ -359,12 +442,6 @@ namespace Nova {
             frame_tool_btn.toggled.connect(() => {
                 if (frame_tool_btn.active) activate_tool("frame");
             });
-            shape_tool_btn.toggled.connect(() => {
-                if (shape_tool_btn.active) activate_tool(current_shape_tool);
-            });
-            draw_tool_btn.toggled.connect(() => {
-                if (draw_tool_btn.active) activate_tool(current_draw_tool);
-            });
             text_tool_btn.toggled.connect(() => {
                 if (text_tool_btn.active) activate_tool("text");
             });
@@ -382,9 +459,17 @@ namespace Nova {
             frame_arrow.popover = frame_popover;
             shape_arrow.popover = shape_popover;
             draw_arrow.popover = draw_popover;
-            setup_slot_gestures(frame_tool_btn, frame_popover, "frame");
-            setup_slot_gestures(shape_tool_btn, shape_popover, "shape");
-            setup_slot_gestures(draw_tool_btn, draw_popover, "draw");
+            shape_tool_btn.clicked.connect(() => {
+                shape_popover.popdown();
+                activate_tool(current_shape_tool);
+            });
+            draw_tool_btn.clicked.connect(() => {
+                draw_popover.popdown();
+                activate_tool(current_draw_tool);
+            });
+            setup_slot_gestures(frame_tool_btn, frame_popover);
+            setup_slot_gestures(shape_tool_btn, shape_popover);
+            setup_slot_gestures(draw_tool_btn, draw_popover);
 
             dock.append(select_tool_btn);
             dock.append(hand_tool_btn);
@@ -600,30 +685,12 @@ namespace Nova {
             return popover;
         }
 
-        private string current_slot_tool(string slot) {
-            if (slot == "shape") return current_shape_tool;
-            if (slot == "draw") return current_draw_tool;
-            return "frame";
-        }
-
-        private void set_slot_press_active(string slot, bool active) {
-            if (slot == "shape") shape_press_active = active;
-            else if (slot == "draw") draw_press_active = active;
-            else frame_press_active = active;
-        }
-
-        private bool slot_press_active(string slot) {
-            if (slot == "shape") return shape_press_active;
-            if (slot == "draw") return draw_press_active;
-            return frame_press_active;
-        }
-
-        private void setup_slot_gestures(Gtk.ToggleButton icon_button, Gtk.Popover popover, string slot_name) {
+        private void setup_slot_gestures(Gtk.ToggleButton icon_button, Gtk.Popover popover) {
             var long_press = new Gtk.GestureLongPress();
             long_press.touch_only = false;
             long_press.pressed.connect((x, y) => {
                 long_press.set_state(Gtk.EventSequenceState.CLAIMED);
-                popover.popup();
+                open_dock_popover(popover);
             });
             icon_button.add_controller(long_press);
 
@@ -631,20 +698,47 @@ namespace Nova {
             right_click.button = 3;
             right_click.pressed.connect((n_press, x, y) => {
                 right_click.set_state(Gtk.EventSequenceState.CLAIMED);
-                popover.popup();
+                open_dock_popover(popover);
             });
             icon_button.add_controller(right_click);
+        }
 
-            var click = new Gtk.GestureClick();
-            click.button = 1;
-            click.pressed.connect((n_press, x, y) => {
-                set_slot_press_active(slot_name, icon_button.active && canvas.tool == current_slot_tool(slot_name));
+        private void open_dock_popover(Gtk.Popover popover) {
+            // Open after the click ends so the click cannot land on the first menu row.
+            GLib.Idle.add(() => {
+                popover.popup();
+                return GLib.Source.REMOVE;
             });
-            click.released.connect((n_press, x, y) => {
-                if (slot_press_active(slot_name)) popover.popup();
-                set_slot_press_active(slot_name, false);
-            });
-            icon_button.add_controller(click);
+        }
+
+        private Gtk.Label dim_label(string text) {
+            var lbl = new Gtk.Label(text);
+            lbl.add_css_class("dim-label");
+            lbl.xalign = 0.0f;
+            lbl.valign = Gtk.Align.CENTER;
+            return lbl;
+        }
+
+        private void fit_spin(Gtk.SpinButton spin) {
+            spin.digits = 0;
+            spin.width_chars = 4;
+            spin.hexpand = true;
+        }
+
+        private Gtk.Box paired_fields(Gtk.Widget left, Gtk.Widget right) {
+            var row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
+            row.homogeneous = true;
+            row.hexpand = true;
+            left.hexpand = true;
+            right.hexpand = true;
+            row.append(left);
+            row.append(right);
+            return row;
+        }
+
+        private void apply_indep_radius() {
+            if (updating_inspector) return;
+            canvas.set_selected_corner_radius(CornerRadii(tl_spin.value, tr_spin.value, br_spin.value, bl_spin.value));
         }
 
         private void build_right_sidebar() {
@@ -799,45 +893,51 @@ namespace Nova {
             var grid = new Gtk.Grid();
             grid.column_spacing = 8;
             grid.row_spacing = 6;
+            grid.hexpand = true;
 
-            grid.attach(new Gtk.Label("X"), 0, 0);
+            grid.attach(dim_label("X"), 0, 0);
             x_spin = new Gtk.SpinButton.with_range(-10000, 10000, 1);
             x_spin.value_changed.connect(() => {
                 if (updating_inspector || canvas.primary_selected == null) return;
                 document.move_shape(canvas.primary_selected, x_spin.value, canvas.primary_selected.y, true);
             });
+            fit_spin(x_spin);
             grid.attach(x_spin, 1, 0);
 
-            grid.attach(new Gtk.Label("Y"), 2, 0);
+            grid.attach(dim_label("Y"), 2, 0);
             y_spin = new Gtk.SpinButton.with_range(-10000, 10000, 1);
             y_spin.value_changed.connect(() => {
                 if (updating_inspector || canvas.primary_selected == null) return;
                 document.move_shape(canvas.primary_selected, canvas.primary_selected.x, y_spin.value, true);
             });
+            fit_spin(y_spin);
             grid.attach(y_spin, 3, 0);
 
-            grid.attach(new Gtk.Label("W"), 0, 1);
+            grid.attach(dim_label("W"), 0, 1);
             w_spin = new Gtk.SpinButton.with_range(1, 10000, 1);
             w_spin.value_changed.connect(() => {
                 if (updating_inspector || canvas.primary_selected == null) return;
                 document.resize_shape(canvas.primary_selected, w_spin.value, canvas.primary_selected.h, true);
             });
+            fit_spin(w_spin);
             grid.attach(w_spin, 1, 1);
 
-            grid.attach(new Gtk.Label("H"), 2, 1);
+            grid.attach(dim_label("H"), 2, 1);
             h_spin = new Gtk.SpinButton.with_range(1, 10000, 1);
             h_spin.value_changed.connect(() => {
                 if (updating_inspector || canvas.primary_selected == null) return;
                 document.resize_shape(canvas.primary_selected, canvas.primary_selected.w, h_spin.value, true);
             });
+            fit_spin(h_spin);
             grid.attach(h_spin, 3, 1);
 
-            grid.attach(new Gtk.Label("°"), 0, 2);
+            grid.attach(dim_label("°"), 0, 2);
             rot_spin = new Gtk.SpinButton.with_range(0, 360, 1);
             rot_spin.value_changed.connect(() => {
                 if (updating_inspector) return;
                 canvas.set_selected_rotation(rot_spin.value);
             });
+            fit_spin(rot_spin);
             grid.attach(rot_spin, 1, 2);
 
             parent.append(grid);
@@ -870,6 +970,8 @@ namespace Nova {
             u_box.append(radius_scale);
 
             radius_spin = new Gtk.SpinButton.with_range(0, 500, 1);
+            fit_spin(radius_spin);
+            radius_spin.hexpand = false;
             radius_spin.value_changed.connect(() => {
                 if (updating_inspector) return;
                 double r = radius_spin.get_value();
@@ -879,23 +981,32 @@ namespace Nova {
             u_box.append(radius_spin);
             parent.append(u_box);
 
-            indep_radius_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
+            indep_radius_box = new Gtk.Box(Gtk.Orientation.VERTICAL, 4);
+            var indep_grid = new Gtk.Grid();
+            indep_grid.column_spacing = 8;
+            indep_grid.row_spacing = 6;
+            indep_grid.hexpand = true;
             tl_spin = new Gtk.SpinButton.with_range(0, 500, 1);
             tr_spin = new Gtk.SpinButton.with_range(0, 500, 1);
             br_spin = new Gtk.SpinButton.with_range(0, 500, 1);
             bl_spin = new Gtk.SpinButton.with_range(0, 500, 1);
-
-            indep_radius_box.append(tl_spin);
-            indep_radius_box.append(tr_spin);
-            indep_radius_box.append(br_spin);
-            indep_radius_box.append(bl_spin);
-
-            var apply_indep = new Gtk.Button.with_label("Apply");
-            apply_indep.clicked.connect(() => {
-                var cr = CornerRadii(tl_spin.value, tr_spin.value, br_spin.value, bl_spin.value);
-                canvas.set_selected_corner_radius(cr);
-            });
-            indep_radius_box.append(apply_indep);
+            fit_spin(tl_spin);
+            fit_spin(tr_spin);
+            fit_spin(br_spin);
+            fit_spin(bl_spin);
+            tl_spin.value_changed.connect(apply_indep_radius);
+            tr_spin.value_changed.connect(apply_indep_radius);
+            br_spin.value_changed.connect(apply_indep_radius);
+            bl_spin.value_changed.connect(apply_indep_radius);
+            indep_grid.attach(dim_label("TL"), 0, 0);
+            indep_grid.attach(tl_spin, 1, 0);
+            indep_grid.attach(dim_label("TR"), 2, 0);
+            indep_grid.attach(tr_spin, 3, 0);
+            indep_grid.attach(dim_label("BL"), 0, 1);
+            indep_grid.attach(bl_spin, 1, 1);
+            indep_grid.attach(dim_label("BR"), 2, 1);
+            indep_grid.attach(br_spin, 3, 1);
+            indep_radius_box.append(indep_grid);
 
             indep_radius_box.visible = false;
             parent.append(indep_radius_box);
@@ -919,6 +1030,8 @@ namespace Nova {
             row.append(opacity_scale);
 
             opacity_spin = new Gtk.SpinButton.with_range(0, 100, 1);
+            fit_spin(opacity_spin);
+            opacity_spin.hexpand = false;
             opacity_spin.value_changed.connect(() => {
                 if (updating_inspector) return;
                 double val = opacity_spin.get_value();
@@ -948,6 +1061,7 @@ namespace Nova {
 
             fill_hex_entry = new Gtk.Entry();
             fill_hex_entry.add_css_class("nova-hex-entry");
+            fill_hex_entry.hexpand = true;
             fill_hex_entry.activate.connect(() => {
                 Color? c = Color.from_hex(fill_hex_entry.text);
                 if (c != null) {
@@ -1022,6 +1136,7 @@ namespace Nova {
 
             stroke_hex_entry = new Gtk.Entry();
             stroke_hex_entry.add_css_class("nova-hex-entry");
+            stroke_hex_entry.hexpand = true;
             stroke_hex_entry.activate.connect(() => {
                 Color? c = Color.from_hex(stroke_hex_entry.text);
                 if (c != null) {
@@ -1041,6 +1156,8 @@ namespace Nova {
             row1.append(stroke_dropper);
 
             stroke_width_spin = new Gtk.SpinButton.with_range(0, 100, 1);
+            fit_spin(stroke_width_spin);
+            stroke_width_spin.hexpand = false;
             stroke_width_spin.value_changed.connect(() => {
                 if (updating_inspector) return;
                 double w = stroke_width_spin.value;
@@ -1049,52 +1166,43 @@ namespace Nova {
             row1.append(stroke_width_spin);
             parent.append(row1);
 
-            // Stroke Options Grid
-            var grid = new Gtk.Grid();
-            grid.column_spacing = 6;
-            grid.row_spacing = 6;
-
-            grid.attach(new Gtk.Label("Dash"), 0, 0);
             stroke_dash_dd = dropdown_from_strings({ "Solid", "Dashed", "Dotted" });
+            stroke_dash_dd.tooltip_text = "Dash";
             stroke_dash_dd.notify["selected"].connect(() => {
                 if (updating_inspector) return;
                 var dash = (stroke_dash_dd.selected == 1) ? StrokeDash.DASHED :
                            ((stroke_dash_dd.selected == 2) ? StrokeDash.DOTTED : StrokeDash.SOLID);
                 canvas.set_selected_stroke(null, null, null, dash, null, null, null);
             });
-            grid.attach(stroke_dash_dd, 1, 0);
 
-            grid.attach(new Gtk.Label("Align"), 2, 0);
             stroke_align_dd = dropdown_from_strings({ "Center", "Inside", "Outside" });
+            stroke_align_dd.tooltip_text = "Align";
             stroke_align_dd.notify["selected"].connect(() => {
                 if (updating_inspector) return;
                 var align = (stroke_align_dd.selected == 1) ? StrokeAlign.INSIDE :
                             ((stroke_align_dd.selected == 2) ? StrokeAlign.OUTSIDE : StrokeAlign.CENTER);
                 canvas.set_selected_stroke(null, null, null, null, align, null, null);
             });
-            grid.attach(stroke_align_dd, 3, 0);
+            parent.append(paired_fields(stroke_dash_dd, stroke_align_dd));
 
-            grid.attach(new Gtk.Label("Cap"), 0, 1);
-            stroke_cap_dd = dropdown_from_strings({ "Butt", "Round", "Square" });
+            stroke_cap_dd = dropdown_from_strings({ "Butt Cap", "Round Cap", "Square Cap" });
+            stroke_cap_dd.tooltip_text = "Cap";
             stroke_cap_dd.notify["selected"].connect(() => {
                 if (updating_inspector) return;
                 var cap = (stroke_cap_dd.selected == 1) ? StrokeCap.ROUND :
                           ((stroke_cap_dd.selected == 2) ? StrokeCap.SQUARE : StrokeCap.BUTT);
                 canvas.set_selected_stroke(null, null, null, null, null, cap, null);
             });
-            grid.attach(stroke_cap_dd, 1, 1);
 
-            grid.attach(new Gtk.Label("Join"), 2, 1);
-            stroke_join_dd = dropdown_from_strings({ "Miter", "Round", "Bevel" });
+            stroke_join_dd = dropdown_from_strings({ "Miter Join", "Round Join", "Bevel Join" });
+            stroke_join_dd.tooltip_text = "Join";
             stroke_join_dd.notify["selected"].connect(() => {
                 if (updating_inspector) return;
                 var join = (stroke_join_dd.selected == 1) ? StrokeJoin.ROUND :
                            ((stroke_join_dd.selected == 2) ? StrokeJoin.BEVEL : StrokeJoin.MITER);
                 canvas.set_selected_stroke(null, null, null, null, null, null, join);
             });
-            grid.attach(stroke_join_dd, 3, 1);
-
-            parent.append(grid);
+            parent.append(paired_fields(stroke_cap_dd, stroke_join_dd));
         }
 
         private void build_text_section(Gtk.Box parent) {
@@ -1128,6 +1236,8 @@ namespace Nova {
             row1.append(font_family_entry);
 
             font_size_spin = new Gtk.SpinButton.with_range(6, 200, 1);
+            fit_spin(font_size_spin);
+            font_size_spin.hexpand = false;
             font_size_spin.value_changed.connect(() => {
                 if (updating_inspector) return;
                 if (canvas.primary_selected != null && canvas.primary_selected.shape_type == ShapeType.TEXT) {
@@ -1138,7 +1248,6 @@ namespace Nova {
             row1.append(font_size_spin);
             text_section.append(row1);
 
-            var row2 = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
             font_weight_dd = dropdown_from_strings({ "Normal", "Semibold", "Bold" });
             font_weight_dd.notify["selected"].connect(() => {
                 if (updating_inspector) return;
@@ -1148,8 +1257,6 @@ namespace Nova {
                     canvas.queue_draw();
                 }
             });
-            row2.append(font_weight_dd);
-
             font_slant_dd = dropdown_from_strings({ "Normal", "Italic" });
             font_slant_dd.notify["selected"].connect(() => {
                 if (updating_inspector) return;
@@ -1158,7 +1265,7 @@ namespace Nova {
                     canvas.queue_draw();
                 }
             });
-            row2.append(font_slant_dd);
+            text_section.append(paired_fields(font_weight_dd, font_slant_dd));
 
             text_align_dd = dropdown_from_strings({ "Left", "Center", "Right" });
             text_align_dd.notify["selected"].connect(() => {
@@ -1169,8 +1276,8 @@ namespace Nova {
                     canvas.queue_draw();
                 }
             });
-            row2.append(text_align_dd);
-            text_section.append(row2);
+            text_align_dd.hexpand = true;
+            text_section.append(text_align_dd);
 
             text_section.visible = false;
             parent.append(text_section);
@@ -1182,6 +1289,8 @@ namespace Nova {
             lbl.add_css_class("dim-label");
             polygon_section.append(lbl);
             polygon_sides_spin = new Gtk.SpinButton.with_range(3, 32, 1);
+            fit_spin(polygon_sides_spin);
+            polygon_sides_spin.hexpand = false;
             polygon_sides_spin.value_changed.connect(() => {
                 if (updating_inspector) return;
                 Shape? s = canvas.primary_selected;
@@ -1203,6 +1312,8 @@ namespace Nova {
             pts.add_css_class("dim-label");
             points_row.append(pts);
             star_points_spin = new Gtk.SpinButton.with_range(3, 32, 1);
+            fit_spin(star_points_spin);
+            star_points_spin.hexpand = false;
             star_points_spin.value_changed.connect(() => apply_star());
             points_row.append(star_points_spin);
             star_section.append(points_row);
@@ -1351,6 +1462,12 @@ namespace Nova {
             dialog.present(this);
         }
 
+        private void apply_accent() {
+            Gdk.RGBA rgba = Adw.StyleManager.get_default().get_accent_color_rgba();
+            canvas.accent_color = Color.rgb(rgba.red, rgba.green, rgba.blue);
+            canvas.queue_draw();
+        }
+
         private void wire_canvas_events() {
             canvas.selection_changed.connect(() => {
                 update_inspector();
@@ -1358,6 +1475,7 @@ namespace Nova {
             });
             canvas.zoom_changed.connect((z) => {
                 zoom_label.label = "%d%%".printf(canvas.get_zoom_percentage());
+                mark_zoom_preset();
             });
             canvas.geometry_changed.connect(() => {
                 update_inspector();
@@ -1368,6 +1486,10 @@ namespace Nova {
                 activate_tool(t);
                 update_inspector();
             });
+            var style = Adw.StyleManager.get_default();
+            style.notify["accent-color"].connect(() => apply_accent());
+            style.notify["dark"].connect(() => apply_accent());
+            apply_accent();
             document.changed.connect(() => {
                 export_preview_area.queue_draw();
                 update_doc_colors();
@@ -1735,6 +1857,11 @@ namespace Nova {
                 canvas.alt_held = alt;
                 canvas.shift_held = shift;
 
+                if (!ctrl && !alt && !shift && (keyval == Gdk.Key.space || keyval == Gdk.Key.KP_Space)) {
+                    canvas.hold_space(true);
+                    return true;
+                }
+
                 if (keyval == Gdk.Key.F1 || (ctrl && (keyval == Gdk.Key.question || keyval == Gdk.Key.slash))) {
                     Shortcuts.show_shortcuts_window(this);
                     return true;
@@ -1882,9 +2009,15 @@ namespace Nova {
             key_ctrl.key_released.connect((keyval, keycode, state) => {
                 canvas.alt_held = (state & Gdk.ModifierType.ALT_MASK) != 0;
                 canvas.shift_held = (state & Gdk.ModifierType.SHIFT_MASK) != 0;
+                if (keyval == Gdk.Key.space || keyval == Gdk.Key.KP_Space) {
+                    canvas.hold_space(false);
+                }
             });
 
+            var focus = new Gtk.EventControllerFocus();
+            focus.leave.connect(() => canvas.hold_space(false));
             ((Gtk.Widget) this).add_controller(key_ctrl);
+            ((Gtk.Widget) this).add_controller(focus);
         }
     }
 }

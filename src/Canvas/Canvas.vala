@@ -47,6 +47,7 @@ namespace Nova {
         public bool alt_held { get; set; default = false; }
         public bool shift_held { get; set; default = false; }
         public bool space_held { get; set; default = false; }
+        public Color accent_color = Color.rgb(0.208, 0.518, 0.894);
 
         // Vector node editing
         public Shape? node_edit_shape { get; private set; default = null; }
@@ -224,7 +225,23 @@ namespace Nova {
             }
             _tool = new_tool;
             tool_changed(new_tool);
+            update_cursor();
             queue_draw();
+        }
+
+        public void hold_space(bool held) {
+            space_held = held;
+            update_cursor();
+        }
+
+        private void update_cursor() {
+            if (space_held || _tool == "hand") {
+                set_cursor(new Gdk.Cursor.from_name("grab", null));
+            } else if (_tool == "select") {
+                set_cursor(null);
+            } else {
+                set_cursor(new Gdk.Cursor.from_name("crosshair", null));
+            }
         }
 
         public void enter_node_edit_mode(Shape? target = null) {
@@ -543,17 +560,17 @@ namespace Nova {
 
             // Paint live drafting shape if creating
             if (draft_shape != null) {
-                Render.paint_shape(cr, draft_shape, Color.rgb(0.2, 0.5, 0.9), true, zoom, true);
+                Render.paint_shape(cr, draft_shape, accent_color, true, zoom, true);
             }
 
             // Paint pen tool live preview
             if (pen_draft_path != null) {
-                Render.paint_pen_preview(cr, pen_draft_path, pen_hover_pt, Color.rgb(0.2, 0.5, 0.9), zoom);
+                Render.paint_pen_preview(cr, pen_draft_path, pen_hover_pt, accent_color, zoom);
             }
 
             // Paint node edit overlay if editing vector nodes
             if (node_edit_shape != null) {
-                Render.paint_node_edit_overlay(cr, node_edit_shape, selected_node_idx, Color.rgb(0.2, 0.5, 0.9), zoom);
+                Render.paint_node_edit_overlay(cr, node_edit_shape, selected_node_idx, accent_color, zoom);
             }
 
             // Paint selection borders and resize handles
@@ -565,10 +582,10 @@ namespace Nova {
                     if (s.shape_type == ShapeType.RECT || s.shape_type == ShapeType.FRAME) {
                         radii = Geometry.get_corner_radii(s);
                     }
-                    Render.paint_selection_bounds(cr, bbox, Color.rgb(0.2, 0.5, 0.9), zoom, radii);
+                    Render.paint_selection_bounds(cr, bbox, accent_color, zoom, radii);
                 } else if (selected_shapes.length > 1) {
                     Rect multi_bbox = Render.multi_selection_bounds(selected_shapes, 0.0, zoom);
-                    Render.paint_selection_bounds(cr, multi_bbox, Color.rgb(0.2, 0.5, 0.9), zoom, null);
+                    Render.paint_selection_bounds(cr, multi_bbox, accent_color, zoom, null);
                 }
             }
 
@@ -578,7 +595,7 @@ namespace Nova {
                                          doc_pointer_x - doc_drag_start_x,
                                          doc_pointer_y - doc_drag_start_y,
                                          out rx, out ry, out rw, out rh);
-                Render.paint_marquee(cr, rx, ry, rw, rh, Color.rgb(0.2, 0.5, 0.9), zoom);
+                Render.paint_marquee(cr, rx, ry, rw, rh, accent_color, zoom);
             }
 
             // Paint smart guides
@@ -841,6 +858,19 @@ namespace Nova {
                 return;
             }
 
+            if (tool == "pencil") {
+                drag_mode = "pencil";
+                draft_shape = new Shape(ShapeType.PENCIL);
+                draft_shape.x = doc_drag_start_x;
+                draft_shape.y = doc_drag_start_y;
+                draft_shape.w = 1.0;
+                draft_shape.h = 1.0;
+                draft_shape.color = pen_color;
+                draft_shape.stroke_color = pen_color;
+                draft_shape.points.add(Point(0.0, 0.0));
+                return;
+            }
+
             if (tool == "select") {
                 if (active_handle != null) {
                     if (active_handle.has_prefix("r")) {
@@ -995,19 +1025,41 @@ namespace Nova {
                 return;
             }
 
+            if (drag_mode == "pencil" && draft_shape != null) {
+                draft_shape.points.add(Point(doc_x - draft_shape.x, doc_y - draft_shape.y));
+                queue_draw();
+                return;
+            }
+
             if (drag_mode == "draw" && draft_shape != null) {
-                double nx, ny, nw, nh;
-                Geometry.normalize_bounds(doc_drag_start_x, doc_drag_start_y,
-                                         doc_x - doc_drag_start_x, doc_y - doc_drag_start_y,
-                                         out nx, out ny, out nw, out nh);
-                if (shift_held) {
-                    double sz = Math.fmax(nw, nh);
-                    nw = sz; nh = sz;
+                if (tool == "line" || tool == "arrow") {
+                    double lw = doc_x - doc_drag_start_x;
+                    double lh = doc_y - doc_drag_start_y;
+                    if (shift_held) {
+                        double ang = Math.atan2(lh, lw);
+                        double snap = Math.round(ang / (Math.PI / 4.0)) * (Math.PI / 4.0);
+                        double dist = Math.hypot(lw, lh);
+                        lw = dist * Math.cos(snap);
+                        lh = dist * Math.sin(snap);
+                    }
+                    draft_shape.x = doc_drag_start_x;
+                    draft_shape.y = doc_drag_start_y;
+                    draft_shape.w = lw;
+                    draft_shape.h = lh;
+                } else {
+                    double nx, ny, nw, nh;
+                    Geometry.normalize_bounds(doc_drag_start_x, doc_drag_start_y,
+                                             doc_x - doc_drag_start_x, doc_y - doc_drag_start_y,
+                                             out nx, out ny, out nw, out nh);
+                    if (shift_held) {
+                        double sz = Math.fmax(nw, nh);
+                        nw = sz; nh = sz;
+                    }
+                    draft_shape.x = nx;
+                    draft_shape.y = ny;
+                    draft_shape.w = Math.fmax(1.0, nw);
+                    draft_shape.h = Math.fmax(1.0, nh);
                 }
-                draft_shape.x = nx;
-                draft_shape.y = ny;
-                draft_shape.w = Math.fmax(1.0, nw);
-                draft_shape.h = Math.fmax(1.0, nh);
                 queue_draw();
                 return;
             }
@@ -1049,11 +1101,64 @@ namespace Nova {
             }
         }
 
+        private static void fit_pencil_bounds(Shape shape) {
+            if (shape.points.length == 0) return;
+            double min_x = 0.0;
+            double min_y = 0.0;
+            double max_x = 0.0;
+            double max_y = 0.0;
+            bool any = false;
+            for (uint i = 0; i < shape.points.length; i++) {
+                Point? raw = shape.points[i];
+                if (raw == null) continue;
+                Point p = raw;
+                if (!any) {
+                    min_x = max_x = p.x;
+                    min_y = max_y = p.y;
+                    any = true;
+                } else {
+                    min_x = Math.fmin(min_x, p.x);
+                    min_y = Math.fmin(min_y, p.y);
+                    max_x = Math.fmax(max_x, p.x);
+                    max_y = Math.fmax(max_y, p.y);
+                }
+            }
+            if (!any) return;
+            shape.x += min_x;
+            shape.y += min_y;
+            shape.w = Math.fmax(1.0, max_x - min_x);
+            shape.h = Math.fmax(1.0, max_y - min_y);
+            for (uint i = 0; i < shape.points.length; i++) {
+                Point? raw = shape.points[i];
+                if (raw == null) continue;
+                Point p = raw;
+                shape.points[i] = Point(p.x - min_x, p.y - min_y);
+            }
+        }
+
         private void on_drag_end(double offset_x, double offset_y) {
             smart_guides.remove_range(0, smart_guides.length);
 
+            if (drag_mode == "pencil" && draft_shape != null) {
+                draft_shape.points = Geometry.smooth_points(draft_shape.points, 2);
+                fit_pencil_bounds(draft_shape);
+                if (draft_shape.points.length >= 2) {
+                    Shape added = document.add_shape(draft_shape, true);
+                    draft_shape = null;
+                    select_shape(added);
+                } else {
+                    draft_shape = null;
+                }
+                set_tool("select");
+            }
+
             if (drag_mode == "draw" && draft_shape != null) {
-                if (draft_shape.w < 4.0 && draft_shape.h < 4.0) {
+                if (tool == "line" || tool == "arrow") {
+                    if (Math.hypot(draft_shape.w, draft_shape.h) < 2.0) {
+                        draft_shape.w = 100.0;
+                        draft_shape.h = 0.0;
+                    }
+                } else if (draft_shape.w < 4.0 && draft_shape.h < 4.0) {
                     draft_shape.w = 100.0;
                     draft_shape.h = 100.0;
                 }

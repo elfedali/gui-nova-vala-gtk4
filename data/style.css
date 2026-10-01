@@ -22,32 +22,46 @@
     margin-bottom: 2px;
 }
 
+.nova-sidebar entry,
+.nova-sidebar spinbutton,
+.nova-sidebar dropdown > button {
+    border: 1px solid alpha(currentColor, 0.24);
+    border-radius: 6px;
+    min-width: 0;
+    min-height: 28px;
+    background-color: alpha(currentColor, 0.04);
+}
+
+.nova-sidebar dropdown {
+    min-width: 0;
+}
+
 .nova-sidebar spinbutton {
-    min-width: 48px;
     padding: 0px 2px;
     font-size: 13px;
-    border-radius: 6px;
 }
 
 .nova-sidebar spinbutton text {
-    min-width: 28px;
+    min-width: 0;
     padding: 2px 4px;
 }
 
 .nova-sidebar spinbutton button {
-    min-width: 12px;
-    min-height: 12px;
+    min-width: 16px;
+    min-height: 16px;
     padding: 0px;
     margin: 0px;
+    border: none;
+    background: none;
+    box-shadow: none;
 }
 
 .nova-hex-entry {
     font-family: monospace;
     font-size: 12px;
     font-weight: 600;
-    min-width: 60px;
+    min-width: 0;
     padding: 2px 6px;
-    border-radius: 6px;
 }
 
 .nova-swatch {
@@ -102,6 +116,27 @@
     padding: 4px 8px;
     border-radius: 6px;
     background-color: alpha(currentColor, 0.07);
+}
+
+.nova-zoom-btn {
+    padding: 0px 2px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+}
+
+.nova-zoom-btn:hover {
+    background-color: alpha(currentColor, 0.08);
+}
+
+.nova-zoom-popover contents {
+    padding: 4px;
+    border-radius: 8px;
+    background-color: @headerbar_bg_color;
+}
+
+.nova-zoom-entry {
+    min-width: 140px;
 }
 
 .nova-tool-btn {
