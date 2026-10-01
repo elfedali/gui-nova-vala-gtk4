@@ -630,25 +630,31 @@ namespace Nova {
             cr.restore();
         }
 
-        public static void paint_pixel_grid(Cairo.Context cr, double pan_x, double pan_y, double zoom, int width, int height) {
-            if (zoom < 8.0) return;
+        public static void paint_pixel_grid(Cairo.Context cr, double pan_x, double pan_y, double zoom, int width, int height, bool dark_canvas) {
+            // One document pixel is large enough to see from 400% upward.
+            if (zoom < 4.0 || width <= 0 || height <= 0) return;
+            double fade = Math.fmin(1.0, (zoom - 4.0) / 4.0);
+            double alpha = 0.16 + 0.22 * fade;
             cr.save();
-            cr.set_source_rgba(0.5, 0.5, 0.5, Math.fmin(0.25, (zoom - 8.0) / 16.0));
+            if (dark_canvas) cr.set_source_rgba(1.0, 1.0, 1.0, alpha);
+            else cr.set_source_rgba(0.0, 0.0, 0.0, alpha);
             cr.set_line_width(1.0);
             cr.set_dash(new double[0], 0.0);
 
-            double start_x = (int) (pan_x % zoom);
-            while (start_x < width) {
-                cr.move_to(start_x + 0.5, 0.0);
-                cr.line_to(start_x + 0.5, height);
-                start_x += zoom;
+            double x = Math.ceil(-pan_x / zoom) * zoom + pan_x;
+            while (x < width) {
+                double hair = Math.floor(x) + 0.5;
+                cr.move_to(hair, 0.0);
+                cr.line_to(hair, height);
+                x += zoom;
             }
 
-            double start_y = (int) (pan_y % zoom);
-            while (start_y < height) {
-                cr.move_to(0.0, start_y + 0.5);
-                cr.line_to(width, start_y + 0.5);
-                start_y += zoom;
+            double y = Math.ceil(-pan_y / zoom) * zoom + pan_y;
+            while (y < height) {
+                double hair = Math.floor(y) + 0.5;
+                cr.move_to(0.0, hair);
+                cr.line_to(width, hair);
+                y += zoom;
             }
 
             cr.stroke();
