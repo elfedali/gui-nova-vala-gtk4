@@ -1544,6 +1544,9 @@ namespace Nova {
                 rot_spin.value = s.rotation;
 
                 CornerRadii radii = Geometry.get_corner_radii(s);
+                if (!radii.is_uniform()) {
+                    indep_radius_toggle.active = true;
+                }
                 radius_scale.set_value(radii.tl);
                 radius_spin.value = radii.tl;
                 tl_spin.value = radii.tl;
@@ -1885,8 +1888,14 @@ namespace Nova {
                 bool shift = (state & Gdk.ModifierType.SHIFT_MASK) != 0;
                 bool alt = (state & Gdk.ModifierType.ALT_MASK) != 0;
 
-                canvas.alt_held = alt;
-                canvas.shift_held = shift;
+                bool alt_key = keyval == Gdk.Key.Alt_L || keyval == Gdk.Key.Alt_R;
+                bool shift_key = keyval == Gdk.Key.Shift_L || keyval == Gdk.Key.Shift_R;
+                canvas.alt_held = alt || alt_key;
+                canvas.shift_held = shift || shift_key;
+                if (alt_key || shift_key) {
+                    canvas.refresh_modifier_drag();
+                }
+                if (alt_key) return true;
 
                 if (!ctrl && !alt && !shift && (keyval == Gdk.Key.space || keyval == Gdk.Key.KP_Space)) {
                     canvas.hold_space(true);
@@ -2048,15 +2057,24 @@ namespace Nova {
             });
 
             key_ctrl.key_released.connect((keyval, keycode, state) => {
-                canvas.alt_held = (state & Gdk.ModifierType.ALT_MASK) != 0;
-                canvas.shift_held = (state & Gdk.ModifierType.SHIFT_MASK) != 0;
+                bool alt_key = keyval == Gdk.Key.Alt_L || keyval == Gdk.Key.Alt_R;
+                bool shift_key = keyval == Gdk.Key.Shift_L || keyval == Gdk.Key.Shift_R;
+                canvas.alt_held = !alt_key && (state & Gdk.ModifierType.ALT_MASK) != 0;
+                canvas.shift_held = !shift_key && (state & Gdk.ModifierType.SHIFT_MASK) != 0;
+                if (alt_key || shift_key) {
+                    canvas.refresh_modifier_drag();
+                }
                 if (keyval == Gdk.Key.space || keyval == Gdk.Key.KP_Space) {
                     canvas.hold_space(false);
                 }
             });
 
             var focus = new Gtk.EventControllerFocus();
-            focus.leave.connect(() => canvas.hold_space(false));
+            focus.leave.connect(() => {
+                canvas.hold_space(false);
+                canvas.alt_held = false;
+                canvas.shift_held = false;
+            });
             ((Gtk.Widget) this).add_controller(key_ctrl);
             ((Gtk.Widget) this).add_controller(focus);
         }

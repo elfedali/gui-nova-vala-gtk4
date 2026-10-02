@@ -143,6 +143,10 @@ namespace Nova {
             if (record_undo) {
                 checkpoint();
             }
+            if (shape.shape_type == ShapeType.FRAME) {
+                x = Math.round(x);
+                y = Math.round(y);
+            }
             double dx = x - shape.x;
             double dy = y - shape.y;
 
@@ -208,6 +212,12 @@ namespace Nova {
         public void place_shape(Shape shape, double x, double y, double width, double height, bool record_undo = false) {
             if (record_undo) {
                 checkpoint();
+            }
+            if (shape.shape_type == ShapeType.FRAME) {
+                x = Math.round(x);
+                y = Math.round(y);
+                width = Math.round(width);
+                height = Math.round(height);
             }
             shape.x = x;
             shape.y = y;

@@ -312,9 +312,6 @@ namespace Nova {
             if (shape.has_stroke && shape.stroke_width > 0 && shape.stroke_align == StrokeAlign.CENTER) {
                 return fill + stroke_only_attrs(shape, false, false);
             }
-            if (shape.shape_type == ShapeType.FRAME && (!shape.has_stroke || shape.stroke_width <= 0)) {
-                return fill + " stroke=\"#BFBFCC\" stroke-width=\"1\"";
-            }
             return fill;
         }
 

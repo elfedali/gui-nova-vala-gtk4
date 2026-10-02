@@ -81,9 +81,6 @@ namespace Nova {
                 case ShapeType.FRAME:
                     this.name = "Frame";
                     this.color = Color.rgb(1.0, 1.0, 1.0);
-                    this.stroke_width = 1.0;
-                    this.stroke_color = Color.rgb(0.75, 0.75, 0.8);
-                    this.has_stroke = true;
                     break;
                 case ShapeType.TEXT:
                     this.name = "Text";

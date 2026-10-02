@@ -23,9 +23,6 @@ namespace Nova {
             frame.w = 393.0;
             frame.h = 852.0;
             frame.color = Color.rgb(1.0, 1.0, 1.0);
-            frame.has_stroke = true;
-            frame.stroke_width = 1.0;
-            frame.stroke_color = Color.rgb(0.75, 0.75, 0.8);
             doc.add_shape(frame, false);
             return doc;
         }

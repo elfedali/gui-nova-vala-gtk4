@@ -45,6 +45,9 @@ namespace Nova {
         private double resize_w = 0.0;
         private double resize_h = 0.0;
         private bool alt_copy_done = false;
+        private double last_drag_offset_x = 0.0;
+        private double last_drag_offset_y = 0.0;
+        private CornerRadii radius_origin = CornerRadii(0, 0, 0, 0);
 
         private GLib.GenericArray<Guide?> smart_guides;
         private Shape? measurement_target = null;
@@ -583,7 +586,7 @@ namespace Nova {
                     unowned Shape s = selected_shapes[0];
                     Rect bbox = Render.selection_bounds(s, 0.0, zoom);
                     CornerRadii? radii = null;
-                    if (s.shape_type == ShapeType.RECT) {
+                    if (shows_radius_handles(s)) {
                         radii = Geometry.get_corner_radii(s);
                     }
                     Render.paint_selection_bounds(cr, bbox, accent_color, zoom, radii);
@@ -639,9 +642,11 @@ namespace Nova {
             click_gesture.pressed.connect(on_pressed);
             this.add_controller(click_gesture);
 
-            // Drag gesture (drag begin, update, end)
+            // Drag gesture (drag begin, update, end). Grouped with the click
+            // so a press on a handle is seen before the drag starts.
             drag_gesture = new Gtk.GestureDrag();
             drag_gesture.set_button(1);
+            click_gesture.group(drag_gesture);
             drag_gesture.drag_begin.connect(on_drag_begin);
             drag_gesture.drag_update.connect(on_drag_update);
             drag_gesture.drag_end.connect(on_drag_end);
@@ -791,19 +796,9 @@ namespace Nova {
 
             // Select tool or Shape creation tool
             if (tool == "select") {
-                // First check handles if single shape selected
-                if (selected_shapes.length == 1) {
-                    unowned Shape s = selected_shapes[0];
-                    Rect bbox = Render.selection_bounds(s, 0.0, zoom);
-                    CornerRadii? radii = null;
-                    if (s.shape_type == ShapeType.RECT) {
-                        radii = Geometry.get_corner_radii(s);
-                    }
-                    string? handle = Render.hit_handle(bbox, doc_x, doc_y, Render.HANDLE_SIZE, zoom, radii);
-                    if (handle != null) {
-                        active_handle = handle;
-                        return;
-                    }
+                active_handle = selection_handle_at(doc_x, doc_y);
+                if (active_handle != null) {
+                    return;
                 }
 
                 Shape? header = frame_header_at(doc_x, doc_y);
@@ -877,9 +872,13 @@ namespace Nova {
             }
 
             if (tool == "select") {
+                active_handle = selection_handle_at(doc_drag_start_x, doc_drag_start_y);
                 if (active_handle != null) {
-                    if (active_handle.has_prefix("r")) {
+                    if (active_handle == "rtl" || active_handle == "rtr" || active_handle == "rbr" || active_handle == "rbl") {
                         drag_mode = "radius";
+                        if (primary_selected != null) {
+                            radius_origin = primary_selected.corner_radius;
+                        }
                     } else if (active_handle == "rot") {
                         drag_mode = "rotate";
                     } else {
@@ -924,13 +923,17 @@ namespace Nova {
             draft_shape.color = pen_color;
             if (stype == ShapeType.FRAME) {
                 draft_shape.color = Color.rgb(1.0, 1.0, 1.0);
-                draft_shape.stroke_width = 1.0;
-                draft_shape.stroke_color = Color.rgb(0.75, 0.75, 0.8);
-                draft_shape.has_stroke = true;
             }
         }
 
+        public void refresh_modifier_drag() {
+            if (drag_mode == "none") return;
+            on_drag_update(last_drag_offset_x, last_drag_offset_y);
+        }
+
         private void on_drag_update(double offset_x, double offset_y) {
+            last_drag_offset_x = offset_x;
+            last_drag_offset_y = offset_y;
             double cur_x = drag_start_x + offset_x;
             double cur_y = drag_start_y + offset_y;
             double doc_x, doc_y;
@@ -1018,7 +1021,16 @@ namespace Nova {
             if (drag_mode == "radius" && primary_selected != null && active_handle != null) {
                 unowned Shape s = primary_selected;
                 double r = Geometry.corner_radius_from_pointer(active_handle, doc_x, doc_y, s.x, s.y, s.w, s.h);
-                s.corner_radius = CornerRadii.uniform(r);
+                if (alt_held) {
+                    CornerRadii radii = radius_origin;
+                    if (active_handle == "rtl") radii.tl = r;
+                    else if (active_handle == "rtr") radii.tr = r;
+                    else if (active_handle == "rbr") radii.br = r;
+                    else radii.bl = r;
+                    s.corner_radius = radii;
+                } else {
+                    s.corner_radius = CornerRadii.uniform(r);
+                }
                 geometry_changed();
                 queue_draw();
                 return;
@@ -1217,6 +1229,9 @@ namespace Nova {
                     document.update_frame_containment(selected_shapes[i]);
                 }
             }
+            if (drag_mode == "resize" && primary_selected != null && primary_selected.shape_type != ShapeType.FRAME) {
+                document.update_frame_containment(primary_selected);
+            }
 
             if (drag_mode == "marquee") {
                 double rx, ry, rw, rh;
@@ -1309,6 +1324,22 @@ namespace Nova {
             pan_y -= my;
             queue_draw();
             return true;
+        }
+
+        private bool shows_radius_handles(Shape shape) {
+            return shape.shape_type == ShapeType.RECT || shape.shape_type == ShapeType.IMAGE;
+        }
+
+        private string? selection_handle_at(double doc_x, double doc_y) {
+            if (selected_shapes.length != 1) return null;
+            unowned Shape s = selected_shapes[0];
+            if (s.locked) return null;
+            Rect bbox = Render.selection_bounds(s, 0.0, zoom);
+            CornerRadii? radii = null;
+            if (shows_radius_handles(s)) {
+                radii = Geometry.get_corner_radii(s);
+            }
+            return Render.hit_handle(bbox, doc_x, doc_y, Render.HANDLE_SIZE, zoom, radii);
         }
 
         private bool frame_body_selects(Shape frame, double x, double y) {

@@ -23,7 +23,7 @@ namespace Nova {
         public const double CORNER_HANDLE_RADIUS = 3.5;
         public const double RADIUS_HANDLE_RADIUS = 3.0;
         public const double RADIUS_HANDLE_MIN_INSET = 14.0;
-        public const double RADIUS_HANDLE_HIT = 8.0;
+        public const double RADIUS_HANDLE_HIT = 14.0;
         public const double ROTATION_HANDLE_DIST = 24.0;
 
         public static bool trace_shape(Cairo.Context cr, Shape shape) {
@@ -261,20 +261,15 @@ namespace Nova {
 
             cr.set_source_rgb(shape.color.red, shape.color.green, shape.color.blue);
 
+            if (shape.shape_type == ShapeType.FRAME) {
+                cr.fill();
+                return;
+            }
+
             bool has_custom_stroke = shape.has_stroke && shape.stroke_width > 0;
 
             if (!has_custom_stroke) {
-                if (shape.shape_type == ShapeType.FRAME) {
-                    cr.fill_preserve();
-                    cr.set_source_rgba(0.75, 0.75, 0.8, 0.8);
-                    cr.set_line_width(1.0);
-                    cr.set_line_cap(Cairo.LineCap.BUTT);
-                    cr.set_line_join(Cairo.LineJoin.MITER);
-                    cr.set_dash(new double[0], 0.0);
-                    cr.stroke();
-                } else {
-                    cr.fill();
-                }
+                cr.fill();
             } else {
                 cr.fill();
                 Color sc = shape.stroke_color;
@@ -539,17 +534,18 @@ namespace Nova {
             double z = Math.fmax(1e-6, zoom);
             double inset = RADIUS_HANDLE_MIN_INSET / z;
             if (width < inset * 2.5 || height < inset * 2.5) return map;
+            double limit = Math.fmin(width, height) * 0.45;
 
-            map.insert("rtl", Point(x + Math.fmin(Math.fmax(radii.tl, inset), width * 0.45),
-                                   y + Math.fmin(Math.fmax(radii.tl, inset), height * 0.45)));
-            map.insert("rtr", Point(x + width - Math.fmin(Math.fmax(radii.tr, inset), width * 0.45),
-                                   y + Math.fmin(Math.fmax(radii.tr, inset), height * 0.45)));
-            map.insert("rbr", Point(x + width - Math.fmin(Math.fmax(radii.br, inset), width * 0.45),
-                                   y + height - Math.fmin(Math.fmax(radii.br, inset), height * 0.45)));
-            map.insert("rbl", Point(x + Math.fmin(Math.fmax(radii.bl, inset), width * 0.45),
-                                   y + height - Math.fmin(Math.fmax(radii.bl, inset), height * 0.45)));
+            map.insert("rtl", Point(x + radius_slot(radii.tl, inset, limit), y + radius_slot(radii.tl, inset, limit)));
+            map.insert("rtr", Point(x + width - radius_slot(radii.tr, inset, limit), y + radius_slot(radii.tr, inset, limit)));
+            map.insert("rbr", Point(x + width - radius_slot(radii.br, inset, limit), y + height - radius_slot(radii.br, inset, limit)));
+            map.insert("rbl", Point(x + radius_slot(radii.bl, inset, limit), y + height - radius_slot(radii.bl, inset, limit)));
 
             return map;
+        }
+
+        private static double radius_slot(double radius, double inset, double limit) {
+            return Math.fmin(Math.fmax(radius, inset), limit);
         }
 
         public static string? hit_handle(Rect bbox, double px, double py, double size = HANDLE_SIZE,
@@ -608,24 +604,6 @@ namespace Nova {
             cr.set_dash(new double[0], 0.0);
             cr.stroke();
 
-            if (radii != null) {
-                double inner = RADIUS_HANDLE_RADIUS / z;
-                var rcenters = radius_handle_centers(bbox, radii, z);
-                string[] rnames = { "rtl", "rtr", "rbr", "rbl" };
-                for (int i = 0; i < rnames.length; i++) {
-                    Point? rp = rcenters.lookup(rnames[i]);
-                    if (rp != null) {
-                        cr.new_path();
-                        cr.arc(rp.x, rp.y, inner, 0.0, 2.0 * Math.PI);
-                        cr.set_source_rgb(1.0, 1.0, 1.0);
-                        cr.fill_preserve();
-                        cr.set_source_rgb(color.red, color.green, color.blue);
-                        cr.set_line_width(1.0 / z);
-                        cr.stroke();
-                    }
-                }
-            }
-
             double corner_size = (CORNER_HANDLE_RADIUS * 2.0) / z;
             var centers = handle_centers(bbox, z);
             string[] corners = { "nw", "ne", "se", "sw" };
@@ -639,6 +617,24 @@ namespace Nova {
                     cr.set_source_rgb(color.red, color.green, color.blue);
                     cr.set_line_width(1.0 / z);
                     cr.stroke();
+                }
+            }
+
+            if (radii != null) {
+                double inner = RADIUS_HANDLE_RADIUS / z;
+                var rcenters = radius_handle_centers(bbox, radii, z);
+                string[] rnames = { "rtl", "rtr", "rbr", "rbl" };
+                for (int i = 0; i < rnames.length; i++) {
+                    Point? rp = rcenters.lookup(rnames[i]);
+                    if (rp != null) {
+                        cr.new_path();
+                        cr.arc(rp.x, rp.y, inner, 0.0, 2.0 * Math.PI);
+                        cr.set_source_rgb(1.0, 1.0, 1.0);
+                        cr.fill_preserve();
+                        cr.set_source_rgb(color.red, color.green, color.blue);
+                        cr.set_line_width(1.5 / z);
+                        cr.stroke();
+                    }
                 }
             }
         }
