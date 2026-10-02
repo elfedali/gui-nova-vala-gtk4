@@ -593,7 +593,7 @@ namespace Nova {
                 Render.paint_node_edit_overlay(cr, node_edit_shape, selected_node_idx, accent_color, zoom);
             }
 
-            // Paint selection borders and resize handles. Hidden while moving so the outline does not follow the drag.
+            // Selection uses the square bounding box. Hover keeps the outline that follows the shape.
             if (node_edit_shape == null && pen_draft_path == null && drag_mode != "move") {
                 if (selected_shapes.length == 1) {
                     unowned Shape s = selected_shapes[0];
@@ -602,8 +602,7 @@ namespace Nova {
                     if (shows_radius_handles(s)) {
                         radii = Geometry.get_corner_radii(s);
                     }
-                    Render.paint_shape_outline(cr, s, accent_color, zoom);
-                    Render.paint_selection_bounds(cr, bbox, accent_color, zoom, radii, false);
+                    Render.paint_selection_bounds(cr, bbox, accent_color, zoom, radii);
                 } else if (selected_shapes.length > 1) {
                     Rect multi_bbox = Render.multi_selection_bounds(selected_shapes, 0.0, zoom);
                     Render.paint_selection_bounds(cr, multi_bbox, accent_color, zoom, null);
