@@ -580,8 +580,8 @@ namespace Nova {
                 Render.paint_node_edit_overlay(cr, node_edit_shape, selected_node_idx, accent_color, zoom);
             }
 
-            // Paint selection borders and resize handles
-            if (node_edit_shape == null && pen_draft_path == null) {
+            // Paint selection borders and resize handles. Hidden while moving so the outline does not follow the drag.
+            if (node_edit_shape == null && pen_draft_path == null && drag_mode != "move") {
                 if (selected_shapes.length == 1) {
                     unowned Shape s = selected_shapes[0];
                     Rect bbox = Render.selection_bounds(s, 0.0, zoom);
@@ -910,10 +910,9 @@ namespace Nova {
                 return;
             }
 
-            // Otherwise, shape creation tool. Start on a whole pixel.
+            // Otherwise, shape creation tool. Start on a corner or a whole pixel.
             drag_mode = "draw";
-            doc_drag_start_x = snap_px(doc_drag_start_x);
-            doc_drag_start_y = snap_px(doc_drag_start_y);
+            snap_draw_point(doc_drag_start_x, doc_drag_start_y, out doc_drag_start_x, out doc_drag_start_y);
             ShapeType stype = ShapeType.from_string(tool);
             draft_shape = new Shape(stype);
             draft_shape.x = doc_drag_start_x;
@@ -940,6 +939,7 @@ namespace Nova {
             to_document(cur_x, cur_y, out doc_x, out doc_y);
             doc_pointer_x = doc_x;
             doc_pointer_y = doc_y;
+            clear_smart_guides();
 
             double doc_offset_x = offset_x / zoom;
             double doc_offset_y = offset_y / zoom;
@@ -985,12 +985,14 @@ namespace Nova {
                         moving_frames.insert(drag_shapes[i].id, true);
                     }
                 }
+                double adj_x, adj_y;
+                move_corner_adjust(total_dx, total_dy, moving_frames, out adj_x, out adj_y);
                 for (uint i = 0; i < drag_shapes.length; i++) {
                     unowned Shape s = drag_shapes[i];
                     if (s.frame_id != null && moving_frames.contains(s.frame_id)) {
                         continue;
                     }
-                    document.move_shape(s, snap_px(drag_origin_x[i] + total_dx), snap_px(drag_origin_y[i] + total_dy), false);
+                    document.move_shape(s, snap_px(drag_origin_x[i] + total_dx) + adj_x, snap_px(drag_origin_y[i] + total_dy) + adj_y, false);
                 }
                 geometry_changed();
                 queue_draw();
@@ -1013,6 +1015,11 @@ namespace Nova {
                 s.y = snap_px(ry);
                 s.w = Math.fmax(1.0, snap_px(rw));
                 s.h = Math.fmax(1.0, snap_px(rh));
+                if (!shift_held && !alt_held) {
+                    snap_resize_to_corner(s, active_handle);
+                } else {
+                    clear_smart_guides();
+                }
                 geometry_changed();
                 queue_draw();
                 return;
@@ -1059,8 +1066,8 @@ namespace Nova {
             }
 
             if (drag_mode == "draw" && draft_shape != null) {
-                double px = snap_px(doc_x);
-                double py = snap_px(doc_y);
+                double px, py;
+                snap_draw_point(doc_x, doc_y, out px, out py);
                 if (tool == "line" || tool == "arrow") {
                     double lw = px - doc_drag_start_x;
                     double lh = py - doc_drag_start_y;
@@ -1132,6 +1139,195 @@ namespace Nova {
 
         private static double snap_px(double value) {
             return Math.round(value);
+        }
+
+        private double corner_snap_threshold() {
+            return 8.0 / Math.fmax(zoom, 1e-6);
+        }
+
+        private void clear_smart_guides() {
+            if (smart_guides.length > 0) {
+                smart_guides.remove_range(0, smart_guides.length);
+            }
+        }
+
+        private void show_corner_cross(double x, double y) {
+            double arm = 14.0 / Math.fmax(zoom, 1e-6);
+            smart_guides.add(Guide("v", x, y - arm, y + arm));
+            smart_guides.add(Guide("h", y, x - arm, x + arm));
+        }
+
+        private void snap_draw_point(double x, double y, out double out_x, out double out_y) {
+            clear_smart_guides();
+            double sx, sy;
+            if (closest_corner(x, y, corner_snap_threshold(), null, null, out sx, out sy)) {
+                out_x = sx;
+                out_y = sy;
+                show_corner_cross(sx, sy);
+                return;
+            }
+            out_x = snap_px(x);
+            out_y = snap_px(y);
+        }
+
+        private void move_corner_adjust(double total_dx, double total_dy, GLib.HashTable<string, bool> moving_frames, out double adj_x, out double adj_y) {
+            adj_x = 0.0;
+            adj_y = 0.0;
+            clear_smart_guides();
+            var ignore = new GLib.HashTable<string, bool>(GLib.str_hash, GLib.str_equal);
+            for (uint i = 0; i < drag_shapes.length; i++) {
+                ignore.insert(drag_shapes[i].id, true);
+            }
+            double thresh = corner_snap_threshold();
+            double best = thresh * thresh;
+            bool found = false;
+            double hit_x = 0.0;
+            double hit_y = 0.0;
+            for (uint i = 0; i < drag_shapes.length; i++) {
+                unowned Shape s = drag_shapes[i];
+                if (s.frame_id != null && moving_frames.contains(s.frame_id)) continue;
+                double nx = snap_px(drag_origin_x[i] + total_dx);
+                double ny = snap_px(drag_origin_y[i] + total_dy);
+                double[] xs = { nx, nx + s.w, nx + s.w, nx };
+                double[] ys = { ny, ny, ny + s.h, ny + s.h };
+                for (int c = 0; c < 4; c++) {
+                    double tx, ty;
+                    if (!closest_corner(xs[c], ys[c], thresh, ignore, moving_frames, out tx, out ty)) continue;
+                    double ddx = tx - xs[c];
+                    double ddy = ty - ys[c];
+                    double dist2 = ddx * ddx + ddy * ddy;
+                    if (dist2 <= best) {
+                        best = dist2;
+                        found = true;
+                        adj_x = ddx;
+                        adj_y = ddy;
+                        hit_x = tx;
+                        hit_y = ty;
+                    }
+                }
+            }
+            if (found) show_corner_cross(hit_x, hit_y);
+        }
+
+        private void snap_resize_to_corner(Shape shape, string handle) {
+            clear_smart_guides();
+            var ignore = new GLib.HashTable<string, bool>(GLib.str_hash, GLib.str_equal);
+            ignore.insert(shape.id, true);
+            double thresh = corner_snap_threshold();
+
+            if (handle == "nw" || handle == "ne" || handle == "se" || handle == "sw") {
+                double cx = shape.x;
+                double cy = shape.y;
+                double ax = shape.x + shape.w;
+                double ay = shape.y + shape.h;
+                if (handle == "ne") {
+                    cx = shape.x + shape.w;
+                    cy = shape.y;
+                    ax = shape.x;
+                    ay = shape.y + shape.h;
+                } else if (handle == "se") {
+                    cx = shape.x + shape.w;
+                    cy = shape.y + shape.h;
+                    ax = shape.x;
+                    ay = shape.y;
+                } else if (handle == "sw") {
+                    cx = shape.x;
+                    cy = shape.y + shape.h;
+                    ax = shape.x + shape.w;
+                    ay = shape.y;
+                }
+                double tx, ty;
+                if (!closest_corner(cx, cy, thresh, ignore, null, out tx, out ty)) return;
+                double nx, ny, nw, nh;
+                Geometry.normalize_bounds(ax, ay, tx - ax, ty - ay, out nx, out ny, out nw, out nh);
+                if (nw < Geometry.MIN_SHAPE_SIZE || nh < Geometry.MIN_SHAPE_SIZE) return;
+                shape.x = nx;
+                shape.y = ny;
+                shape.w = nw;
+                shape.h = nh;
+                show_corner_cross(tx, ty);
+                return;
+            }
+
+            bool vertical = handle == "e" || handle == "w";
+            double edge = vertical ? shape.x : shape.y;
+            if (handle == "e") edge = shape.x + shape.w;
+            else if (handle == "s") edge = shape.y + shape.h;
+            double best = thresh;
+            bool found = false;
+            double hit = edge;
+            double guide_x = 0.0;
+            double guide_y = 0.0;
+            for (uint i = 0; i < document.shapes.length; i++) {
+                unowned Shape other = document.shapes[i];
+                if (!other.visible || ignore.contains(other.id)) continue;
+                double[] xs = { other.x, other.x + other.w, other.x + other.w, other.x };
+                double[] ys = { other.y, other.y, other.y + other.h, other.y + other.h };
+                for (int c = 0; c < 4; c++) {
+                    if (vertical) {
+                        double delta = Math.fabs(xs[c] - edge);
+                        if (delta >= best) continue;
+                        if (ys[c] < shape.y - thresh || ys[c] > shape.y + shape.h + thresh) continue;
+                        best = delta;
+                        found = true;
+                        hit = xs[c];
+                        guide_x = xs[c];
+                        guide_y = ys[c];
+                    } else {
+                        double delta = Math.fabs(ys[c] - edge);
+                        if (delta >= best) continue;
+                        if (xs[c] < shape.x - thresh || xs[c] > shape.x + shape.w + thresh) continue;
+                        best = delta;
+                        found = true;
+                        hit = ys[c];
+                        guide_x = xs[c];
+                        guide_y = ys[c];
+                    }
+                }
+            }
+            if (!found) return;
+            if (handle == "e") {
+                shape.w = Math.fmax(Geometry.MIN_SHAPE_SIZE, hit - shape.x);
+            } else if (handle == "w") {
+                double right = shape.x + shape.w;
+                shape.x = hit;
+                shape.w = Math.fmax(Geometry.MIN_SHAPE_SIZE, right - hit);
+            } else if (handle == "s") {
+                shape.h = Math.fmax(Geometry.MIN_SHAPE_SIZE, hit - shape.y);
+            } else if (handle == "n") {
+                double bottom = shape.y + shape.h;
+                shape.y = hit;
+                shape.h = Math.fmax(Geometry.MIN_SHAPE_SIZE, bottom - hit);
+            }
+            show_corner_cross(guide_x, guide_y);
+        }
+
+        private bool closest_corner(double x, double y, double thresh, GLib.HashTable<string, bool>? ignore, GLib.HashTable<string, bool>? moving_frames, out double out_x, out double out_y) {
+            out_x = x;
+            out_y = y;
+            double best = thresh * thresh;
+            bool found = false;
+            for (uint i = 0; i < document.shapes.length; i++) {
+                unowned Shape shape = document.shapes[i];
+                if (!shape.visible) continue;
+                if (ignore != null && ignore.contains(shape.id)) continue;
+                if (moving_frames != null && shape.frame_id != null && moving_frames.contains(shape.frame_id)) continue;
+                double[] xs = { shape.x, shape.x + shape.w, shape.x + shape.w, shape.x };
+                double[] ys = { shape.y, shape.y, shape.y + shape.h, shape.y + shape.h };
+                for (int c = 0; c < 4; c++) {
+                    double ddx = xs[c] - x;
+                    double ddy = ys[c] - y;
+                    if (Math.fabs(ddx) > thresh || Math.fabs(ddy) > thresh) continue;
+                    double dist2 = ddx * ddx + ddy * ddy;
+                    if (dist2 <= best) {
+                        best = dist2;
+                        found = true;
+                        out_x = xs[c];
+                        out_y = ys[c];
+                    }
+                }
+            }
+            return found;
         }
 
         private static void fit_pencil_bounds(Shape shape) {

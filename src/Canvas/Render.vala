@@ -678,11 +678,11 @@ namespace Nova {
         public static void paint_pixel_grid(Cairo.Context cr, double pan_x, double pan_y, double zoom, int width, int height, bool dark_canvas) {
             // One document pixel is large enough to see from 400% upward.
             if (zoom < 4.0 || width <= 0 || height <= 0) return;
+            // Pale lines. Stronger contrast would sit on top of the artwork.
             double fade = Math.fmin(1.0, (zoom - 4.0) / 4.0);
-            double alpha = 0.16 + 0.22 * fade;
             cr.save();
-            if (dark_canvas) cr.set_source_rgba(1.0, 1.0, 1.0, alpha);
-            else cr.set_source_rgba(0.0, 0.0, 0.0, alpha);
+            if (dark_canvas) cr.set_source_rgba(1.0, 1.0, 1.0, 0.08 + 0.08 * fade);
+            else cr.set_source_rgba(0.78, 0.81, 0.86, 0.42 + 0.18 * fade);
             cr.set_line_width(1.0);
             cr.set_dash(new double[0], 0.0);
 

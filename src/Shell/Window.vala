@@ -101,6 +101,19 @@ namespace Nova {
         private Shape? layer_rename_shape = null;
         private bool layer_rename_done = false;
 
+        private Gtk.Label inspector_title;
+        private Gtk.Label inspector_kind;
+        private Gtk.Box canvas_panel;
+        private Gtk.Box shape_panel;
+        private Gtk.Box align_section;
+        private Gtk.Box boolean_section;
+        private Gtk.Box transform_section;
+        private Gtk.Box opacity_section;
+        private Gtk.Box fill_section;
+        private Gtk.Box stroke_section;
+        private Gtk.Box actions_section;
+        private Gtk.Box export_section;
+
         private Gtk.Label zoom_label;
         private Gtk.Entry zoom_entry;
         private Gtk.Popover zoom_popover;
@@ -748,6 +761,13 @@ namespace Nova {
             return lbl;
         }
 
+        private Gtk.Label section_label(string text) {
+            var lbl = new Gtk.Label(text);
+            lbl.add_css_class("figma-section-header");
+            lbl.xalign = 0.0f;
+            return lbl;
+        }
+
         private void fit_spin(Gtk.SpinButton spin) {
             spin.digits = 0;
             spin.width_chars = 4;
@@ -778,60 +798,66 @@ namespace Nova {
             right_sidebar.vexpand = true;
             right_sidebar.width_request = 320;
 
+            var head = new Gtk.Box(Gtk.Orientation.VERTICAL, 2);
+            head.add_css_class("nova-inspector-header");
+            inspector_title = new Gtk.Label("Canvas");
+            inspector_title.add_css_class("nova-inspector-title");
+            inspector_title.xalign = 0.0f;
+            inspector_title.ellipsize = Pango.EllipsizeMode.END;
+            inspector_kind = new Gtk.Label("Background");
+            inspector_kind.add_css_class("nova-inspector-kind");
+            inspector_kind.xalign = 0.0f;
+            head.append(inspector_title);
+            head.append(inspector_kind);
+            right_sidebar.append(head);
+
             var scroll = new Gtk.ScrolledWindow();
             scroll.hexpand = true;
             scroll.vexpand = true;
             scroll.hscrollbar_policy = Gtk.PolicyType.NEVER;
             scroll.propagate_natural_width = false;
 
-            var content = new Gtk.Box(Gtk.Orientation.VERTICAL, 8);
+            var content = new Gtk.Box(Gtk.Orientation.VERTICAL, 12);
             content.margin_start = 12;
             content.margin_end = 12;
-            content.margin_top = 8;
+            content.margin_top = 12;
             content.margin_bottom = 16;
 
-            // 1. Alignment Buttons
-            build_alignment_section(content);
+            canvas_panel = new Gtk.Box(Gtk.Orientation.VERTICAL, 8);
+            build_canvas_bg_section(canvas_panel);
+            var hint = new Gtk.Label("Select a shape to edit its properties.");
+            hint.add_css_class("dim-label");
+            hint.wrap = true;
+            hint.xalign = 0.0f;
+            hint.max_width_chars = 28;
+            canvas_panel.append(hint);
+            content.append(canvas_panel);
 
-            // 2. Boolean Operations
-            build_boolean_section(content);
-
-            // 3. Vector Node Toolbar (active in node edit mode)
-            build_node_edit_section(content);
-
-            // 4. Transform & Dimensions
-            build_transform_section(content);
-
-            // 5. Corner Radius
-            build_radius_section(content);
-
-            // 6. Layer Opacity
-            build_opacity_section(content);
-
-            // 7. Fill Color
-            build_fill_section(content);
-
-            // 8. Stroke
-            build_stroke_section(content);
-
-            // 9. Typography, polygon, and star
-            build_text_section(content);
-            build_polygon_section(content);
-            build_star_section(content);
-
-            // 10. Canvas Background
-            build_canvas_bg_section(content);
-
-            build_actions_section(content);
-
-            // 11. Export Section
-            build_export_section(content);
+            shape_panel = new Gtk.Box(Gtk.Orientation.VERTICAL, 14);
+            shape_panel.visible = false;
+            build_alignment_section(shape_panel);
+            build_boolean_section(shape_panel);
+            build_node_edit_section(shape_panel);
+            build_transform_section(shape_panel);
+            build_radius_section(shape_panel);
+            build_text_section(shape_panel);
+            build_polygon_section(shape_panel);
+            build_star_section(shape_panel);
+            build_opacity_section(shape_panel);
+            build_fill_section(shape_panel);
+            build_stroke_section(shape_panel);
+            build_actions_section(shape_panel);
+            build_export_section(shape_panel);
+            content.append(shape_panel);
 
             scroll.set_child(content);
             right_sidebar.append(scroll);
         }
 
         private void build_alignment_section(Gtk.Box parent) {
+            align_section = new Gtk.Box(Gtk.Orientation.VERTICAL, 4);
+            align_section.append(section_label("ALIGN"));
+
             alignment_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 2);
             alignment_box.homogeneous = true;
             alignment_box.hexpand = true;
@@ -863,10 +889,14 @@ namespace Nova {
                 });
                 alignment_box.append(btn);
             }
-            parent.append(alignment_box);
+            align_section.append(alignment_box);
+            parent.append(align_section);
         }
 
         private void build_boolean_section(Gtk.Box parent) {
+            boolean_section = new Gtk.Box(Gtk.Orientation.VERTICAL, 4);
+            boolean_section.append(section_label("COMBINE"));
+
             boolean_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
             var u_btn = Icons.create_lucide_button("boolean-union", "Boolean Union (Ctrl+Alt+U)", 16);
             u_btn.clicked.connect(() => canvas.boolean_union());
@@ -884,7 +914,8 @@ namespace Nova {
             x_btn.clicked.connect(() => canvas.boolean_exclusion());
             boolean_box.append(x_btn);
 
-            parent.append(boolean_box);
+            boolean_section.append(boolean_box);
+            parent.append(boolean_section);
         }
 
         private void build_node_edit_section(Gtk.Box parent) {
@@ -914,10 +945,8 @@ namespace Nova {
         }
 
         private void build_transform_section(Gtk.Box parent) {
-            var lbl = new Gtk.Label("TRANSFORM");
-            lbl.add_css_class("figma-section-header");
-            lbl.xalign = 0.0f;
-            parent.append(lbl);
+            transform_section = new Gtk.Box(Gtk.Orientation.VERTICAL, 4);
+            transform_section.append(section_label("LAYOUT"));
 
             var grid = new Gtk.Grid();
             grid.column_spacing = 8;
@@ -969,7 +998,8 @@ namespace Nova {
             fit_spin(rot_spin);
             grid.attach(rot_spin, 1, 2);
 
-            parent.append(grid);
+            transform_section.append(grid);
+            parent.append(transform_section);
         }
 
         private void build_radius_section(Gtk.Box parent) {
@@ -990,6 +1020,7 @@ namespace Nova {
 
             var u_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
             radius_scale = new Gtk.Scale.with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1);
+            radius_scale.draw_value = false;
             radius_scale.hexpand = true;
             radius_scale.value_changed.connect(() => {
                 if (updating_inspector) return;
@@ -1044,13 +1075,12 @@ namespace Nova {
         }
 
         private void build_opacity_section(Gtk.Box parent) {
-            var lbl = new Gtk.Label("OPACITY");
-            lbl.add_css_class("figma-section-header");
-            lbl.xalign = 0.0f;
-            parent.append(lbl);
+            opacity_section = new Gtk.Box(Gtk.Orientation.VERTICAL, 4);
+            opacity_section.append(section_label("OPACITY"));
 
             var row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
             opacity_scale = new Gtk.Scale.with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1);
+            opacity_scale.draw_value = false;
             opacity_scale.hexpand = true;
             opacity_scale.value_changed.connect(() => {
                 if (updating_inspector) return;
@@ -1070,14 +1100,13 @@ namespace Nova {
                 canvas.set_selected_opacity(val / 100.0);
             });
             row.append(opacity_spin);
-            parent.append(row);
+            opacity_section.append(row);
+            parent.append(opacity_section);
         }
 
         private void build_fill_section(Gtk.Box parent) {
-            var lbl = new Gtk.Label("FILL");
-            lbl.add_css_class("figma-section-header");
-            lbl.xalign = 0.0f;
-            parent.append(lbl);
+            fill_section = new Gtk.Box(Gtk.Orientation.VERTICAL, 6);
+            fill_section.append(section_label("FILL"));
 
             var row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
             fill_swatch = new Gtk.Button();
@@ -1114,7 +1143,7 @@ namespace Nova {
                 });
             });
             row.append(eyedropper_btn);
-            parent.append(row);
+            fill_section.append(row);
 
             // Palette Swatches
             var pal_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
@@ -1136,23 +1165,19 @@ namespace Nova {
                 });
                 pal_box.append(s);
             }
-            parent.append(pal_box);
+            fill_section.append(pal_box);
 
-            // Document Colors
-            var doc_hdr = new Gtk.Label("DOCUMENT COLORS");
-            doc_hdr.add_css_class("figma-section-header");
-            doc_hdr.xalign = 0.0f;
-            parent.append(doc_hdr);
+            fill_section.append(section_label("DOCUMENT COLORS"));
 
             doc_palette_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
-            parent.append(doc_palette_box);
+            doc_palette_box.hexpand = true;
+            fill_section.append(doc_palette_box);
+            parent.append(fill_section);
         }
 
         private void build_stroke_section(Gtk.Box parent) {
-            var lbl = new Gtk.Label("STROKE");
-            lbl.add_css_class("figma-section-header");
-            lbl.xalign = 0.0f;
-            parent.append(lbl);
+            stroke_section = new Gtk.Box(Gtk.Orientation.VERTICAL, 6);
+            stroke_section.append(section_label("STROKE"));
 
             var row1 = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
             stroke_swatch = new Gtk.Button();
@@ -1195,7 +1220,7 @@ namespace Nova {
                 canvas.set_selected_stroke(w > 0, null, w, null, null, null, null);
             });
             row1.append(stroke_width_spin);
-            parent.append(row1);
+            stroke_section.append(row1);
 
             stroke_dash_dd = dropdown_from_strings({ "Solid", "Dashed", "Dotted" });
             stroke_dash_dd.tooltip_text = "Dash";
@@ -1214,7 +1239,7 @@ namespace Nova {
                             ((stroke_align_dd.selected == 2) ? StrokeAlign.OUTSIDE : StrokeAlign.CENTER);
                 canvas.set_selected_stroke(null, null, null, null, align, null, null);
             });
-            parent.append(paired_fields(stroke_dash_dd, stroke_align_dd));
+            stroke_section.append(paired_fields(stroke_dash_dd, stroke_align_dd));
 
             stroke_cap_dd = dropdown_from_strings({ "Butt Cap", "Round Cap", "Square Cap" });
             stroke_cap_dd.tooltip_text = "Cap";
@@ -1233,7 +1258,8 @@ namespace Nova {
                            ((stroke_join_dd.selected == 2) ? StrokeJoin.BEVEL : StrokeJoin.MITER);
                 canvas.set_selected_stroke(null, null, null, null, null, null, join);
             });
-            parent.append(paired_fields(stroke_cap_dd, stroke_join_dd));
+            stroke_section.append(paired_fields(stroke_cap_dd, stroke_join_dd));
+            parent.append(stroke_section);
         }
 
         private void build_text_section(Gtk.Box parent) {
@@ -1315,10 +1341,12 @@ namespace Nova {
         }
 
         private void build_polygon_section(Gtk.Box parent) {
-            polygon_section = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
+            polygon_section = new Gtk.Box(Gtk.Orientation.VERTICAL, 4);
+            polygon_section.append(section_label("POLYGON"));
+            var sides_row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
             var lbl = new Gtk.Label("Sides");
             lbl.add_css_class("dim-label");
-            polygon_section.append(lbl);
+            sides_row.append(lbl);
             polygon_sides_spin = new Gtk.SpinButton.with_range(3, 32, 1);
             fit_spin(polygon_sides_spin);
             polygon_sides_spin.hexpand = false;
@@ -1331,13 +1359,15 @@ namespace Nova {
                     document.note_changed();
                 }
             });
-            polygon_section.append(polygon_sides_spin);
+            sides_row.append(polygon_sides_spin);
+            polygon_section.append(sides_row);
             polygon_section.visible = false;
             parent.append(polygon_section);
         }
 
         private void build_star_section(Gtk.Box parent) {
             star_section = new Gtk.Box(Gtk.Orientation.VERTICAL, 6);
+            star_section.append(section_label("STAR"));
             var points_row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
             var pts = new Gtk.Label("Points");
             pts.add_css_class("dim-label");
@@ -1354,6 +1384,7 @@ namespace Nova {
             ratio.add_css_class("dim-label");
             ratio_row.append(ratio);
             star_ratio_scale = new Gtk.Scale.with_range(Gtk.Orientation.HORIZONTAL, 10, 90, 1);
+            star_ratio_scale.draw_value = false;
             star_ratio_scale.hexpand = true;
             star_ratio_scale.value_changed.connect(() => apply_star());
             ratio_row.append(star_ratio_scale);
@@ -1373,24 +1404,21 @@ namespace Nova {
         }
 
         private void build_actions_section(Gtk.Box parent) {
-            var row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
+            actions_section = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
             var dup = new Gtk.Button.with_label("Duplicate");
             dup.hexpand = true;
             dup.clicked.connect(() => canvas.duplicate_selected());
-            row.append(dup);
+            actions_section.append(dup);
             var del = new Gtk.Button.with_label("Delete");
             del.hexpand = true;
             del.add_css_class("destructive-action");
             del.clicked.connect(() => canvas.delete_selected());
-            row.append(del);
-            parent.append(row);
+            actions_section.append(del);
+            parent.append(actions_section);
         }
 
         private void build_canvas_bg_section(Gtk.Box parent) {
-            var lbl = new Gtk.Label("CANVAS BACKGROUND");
-            lbl.add_css_class("figma-section-header");
-            lbl.xalign = 0.0f;
-            parent.append(lbl);
+            parent.append(section_label("BACKGROUND"));
 
             var row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
             string[] bgs = { "theme", "white", "gray", "dark", "slate" };
@@ -1409,10 +1437,8 @@ namespace Nova {
         }
 
         private void build_export_section(Gtk.Box parent) {
-            var lbl = new Gtk.Label("EXPORT");
-            lbl.add_css_class("figma-section-header");
-            lbl.xalign = 0.0f;
-            parent.append(lbl);
+            export_section = new Gtk.Box(Gtk.Orientation.VERTICAL, 6);
+            export_section.append(section_label("EXPORT"));
 
             var row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
             export_scale_dd = dropdown_from_strings({ "1x", "2x", "3x" });
@@ -1425,7 +1451,7 @@ namespace Nova {
                 export_scale_dd.sensitive = export_fmt_dd.selected != 3;
             });
             row.append(export_fmt_dd);
-            parent.append(row);
+            export_section.append(row);
 
             export_preview_area = new Gtk.DrawingArea();
             export_preview_area.set_size_request(-1, 90);
@@ -1434,12 +1460,13 @@ namespace Nova {
                 var shapes_to_draw = export_targets();
                 Export.paint_export_preview(cr, shapes_to_draw, w, h);
             });
-            parent.append(export_preview_area);
+            export_section.append(export_preview_area);
 
             export_button = new Gtk.Button.with_label("Export");
             export_button.add_css_class("suggested-action");
             export_button.clicked.connect(() => do_export());
-            parent.append(export_button);
+            export_section.append(export_button);
+            parent.append(export_section);
         }
 
         private GLib.GenericArray<Shape> export_targets() {
@@ -1529,12 +1556,49 @@ namespace Nova {
         private void update_inspector() {
             updating_inspector = true;
             Shape? s = canvas.primary_selected;
+            uint count = canvas.selected_shapes.length;
+            bool editing_nodes = canvas.is_in_node_edit_mode();
+            bool has_shape = s != null;
 
-            node_edit_box.visible = canvas.is_in_node_edit_mode();
-            radius_section.visible = s != null && s.shape_type == ShapeType.RECT;
-            text_section.visible = (s != null && s.shape_type == ShapeType.TEXT);
-            polygon_section.visible = (s != null && s.shape_type == ShapeType.POLYGON);
-            star_section.visible = (s != null && s.shape_type == ShapeType.STAR);
+            canvas_panel.visible = !has_shape && !editing_nodes;
+            shape_panel.visible = has_shape || editing_nodes;
+            align_section.visible = has_shape && !editing_nodes;
+            boolean_section.visible = count >= 2 && !editing_nodes;
+            node_edit_box.visible = editing_nodes;
+            transform_section.visible = has_shape;
+            opacity_section.visible = has_shape;
+            actions_section.visible = has_shape;
+            export_section.visible = has_shape;
+
+            radius_section.visible = false;
+            text_section.visible = false;
+            polygon_section.visible = false;
+            star_section.visible = false;
+            fill_section.visible = false;
+            stroke_section.visible = false;
+            if (s != null) {
+                bool single = count == 1;
+                radius_section.visible = single && (s.shape_type == ShapeType.RECT || s.shape_type == ShapeType.IMAGE);
+                text_section.visible = single && s.shape_type == ShapeType.TEXT;
+                polygon_section.visible = single && s.shape_type == ShapeType.POLYGON;
+                star_section.visible = single && s.shape_type == ShapeType.STAR;
+                fill_section.visible = shows_fill(s.shape_type);
+                stroke_section.visible = shows_stroke(s.shape_type);
+            }
+
+            if (!has_shape && !editing_nodes) {
+                inspector_title.label = "Canvas";
+                inspector_kind.label = "Background";
+            } else if (editing_nodes && s != null) {
+                inspector_title.label = s.name.length > 0 ? s.name : "Path";
+                inspector_kind.label = "Edit nodes";
+            } else if (count > 1) {
+                inspector_title.label = "%u selected".printf(count);
+                inspector_kind.label = selection_kind_label();
+            } else if (s != null) {
+                inspector_title.label = s.name.length > 0 ? s.name : shape_kind_label(s.shape_type);
+                inspector_kind.label = shape_kind_label(s.shape_type);
+            }
 
             if (s != null) {
                 x_spin.value = s.x;
@@ -1588,6 +1652,62 @@ namespace Nova {
             export_button.label = targets.length == 0 ? "Export" : "Export %s".printf(Svg.export_basename(targets));
             export_preview_area.queue_draw();
             updating_inspector = false;
+        }
+
+        private static bool shows_fill(ShapeType type) {
+            switch (type) {
+                case ShapeType.LINE:
+                case ShapeType.ARROW:
+                case ShapeType.PENCIL:
+                case ShapeType.IMAGE:
+                case ShapeType.GROUP:
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
+        private static bool shows_stroke(ShapeType type) {
+            switch (type) {
+                case ShapeType.FRAME:
+                case ShapeType.TEXT:
+                case ShapeType.IMAGE:
+                case ShapeType.GROUP:
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
+        private static string shape_kind_label(ShapeType type) {
+            switch (type) {
+                case ShapeType.RECT: return "Rectangle";
+                case ShapeType.ELLIPSE: return "Ellipse";
+                case ShapeType.GROUP: return "Group";
+                case ShapeType.TEXT: return "Text";
+                case ShapeType.POLYGON: return "Polygon";
+                case ShapeType.STAR: return "Star";
+                case ShapeType.LINE: return "Line";
+                case ShapeType.ARROW: return "Arrow";
+                case ShapeType.PENCIL: return "Pencil";
+                case ShapeType.IMAGE: return "Image";
+                case ShapeType.FRAME: return "Frame";
+                case ShapeType.PATH: return "Path";
+                default: return "Shape";
+            }
+        }
+
+        private string selection_kind_label() {
+            string? shared = null;
+            for (uint i = 0; i < canvas.selected_shapes.length; i++) {
+                string kind = shape_kind_label(canvas.selected_shapes[i].shape_type);
+                if (shared == null) {
+                    shared = kind;
+                } else if (shared != kind) {
+                    return "Mixed";
+                }
+            }
+            return shared ?? "Selection";
         }
 
         private void update_doc_colors() {

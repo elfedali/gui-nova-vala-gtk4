@@ -12,6 +12,21 @@
     min-width: 320px;
 }
 
+.nova-inspector-header {
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid alpha(currentColor, 0.08);
+}
+
+.nova-inspector-title {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.nova-inspector-kind {
+    font-size: 12px;
+    opacity: 0.6;
+}
+
 .figma-section-header {
     font-size: 11px;
     font-weight: 700;
