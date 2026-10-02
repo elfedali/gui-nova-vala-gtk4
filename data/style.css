@@ -119,14 +119,19 @@
 }
 
 .nova-zoom-btn {
-    padding: 0px 2px;
+    padding: 0px;
     border: none;
     background: transparent;
-    border-radius: 6px;
 }
 
-.nova-zoom-btn:hover {
-    background-color: alpha(currentColor, 0.08);
+.nova-zoom-face {
+    padding: 2px 8px;
+    border-radius: 6px;
+    background-color: alpha(currentColor, 0.07);
+}
+
+.nova-zoom-btn:hover .nova-zoom-face {
+    background-color: alpha(currentColor, 0.12);
 }
 
 .nova-zoom-popover contents {
@@ -136,7 +141,7 @@
 }
 
 .nova-zoom-entry {
-    min-width: 140px;
+    min-width: 72px;
 }
 
 .nova-tool-btn {

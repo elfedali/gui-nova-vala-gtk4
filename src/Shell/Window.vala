@@ -103,8 +103,6 @@ namespace Nova {
         private Gtk.Label zoom_label;
         private Gtk.Entry zoom_entry;
         private Gtk.Popover zoom_popover;
-        private Gtk.Button[] zoom_preset_buttons;
-        private int[] zoom_preset_values;
         private bool updating_inspector = false;
         private GLib.HashTable<string, bool> collapsed_frames;
 
@@ -174,19 +172,7 @@ namespace Nova {
             // Right Box
             var right_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
 
-            var zoom_out_btn = Icons.create_lucide_button("zoom-out", "Zoom Out", 16);
-            zoom_out_btn.clicked.connect(() => {
-                canvas.zoom_at(canvas.zoom * 0.85, canvas.get_width() / 2.0, canvas.get_height() / 2.0);
-            });
-            right_box.append(zoom_out_btn);
-
             right_box.append(build_zoom_menu());
-
-            var zoom_in_btn = Icons.create_lucide_button("zoom-in", "Zoom In", 16);
-            zoom_in_btn.clicked.connect(() => {
-                canvas.zoom_at(canvas.zoom * 1.15, canvas.get_width() / 2.0, canvas.get_height() / 2.0);
-            });
-            right_box.append(zoom_in_btn);
 
             var shortcuts_btn = Icons.create_lucide_button("help-circle", "Keyboard Shortcuts", 16);
             shortcuts_btn.clicked.connect(() => Shortcuts.show_shortcuts_window(this));
@@ -204,9 +190,10 @@ namespace Nova {
 
         private Gtk.MenuButton build_zoom_menu() {
             zoom_label = new Gtk.Label("100%");
-            zoom_label.add_css_class("nova-stat-pill");
+            zoom_label.xalign = 0;
 
-            var face = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 2);
+            var face = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
+            face.add_css_class("nova-zoom-face");
             face.append(zoom_label);
             face.append(Icons.create_lucide_image("chevron-down", 12));
 
@@ -216,45 +203,64 @@ namespace Nova {
             button.tooltip_text = "Zoom";
             button.direction = Gtk.ArrowType.DOWN;
             button.has_frame = false;
+            button.always_show_arrow = false;
             button.child = face;
 
             zoom_popover = new Gtk.Popover();
             zoom_popover.position = Gtk.PositionType.BOTTOM;
             zoom_popover.add_css_class("nova-zoom-popover");
 
-            var menu = new Gtk.Box(Gtk.Orientation.VERTICAL, 4);
+            var menu = new Gtk.Box(Gtk.Orientation.VERTICAL, 2);
             menu.margin_top = 6;
             menu.margin_bottom = 6;
             menu.margin_start = 6;
             menu.margin_end = 6;
 
+            var value_row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
+            var minus_btn = Icons.create_lucide_button("minus", "Zoom out (Ctrl+-)", 14);
+            minus_btn.clicked.connect(() => {
+                zoom_out();
+                show_zoom_entry();
+            });
+            value_row.append(minus_btn);
+
             zoom_entry = new Gtk.Entry();
             zoom_entry.add_css_class("nova-zoom-entry");
+            zoom_entry.hexpand = true;
             zoom_entry.placeholder_text = "Zoom %";
             zoom_entry.tooltip_text = "Type a zoom percent and press Enter";
             zoom_entry.activate.connect(() => apply_zoom_entry());
-            menu.append(zoom_entry);
+            value_row.append(zoom_entry);
 
-            zoom_preset_values = { 25, 50, 75, 100, 150, 200, 400, 800 };
-            zoom_preset_buttons = new Gtk.Button[zoom_preset_values.length];
-            for (int i = 0; i < zoom_preset_values.length; i++) {
-                int pct = zoom_preset_values[i];
-                int index = i;
-                var item = new Gtk.Button.with_label("%d%%".printf(pct));
-                item.add_css_class("flat");
-                item.add_css_class("nova-dock-menu-item");
+            var plus_btn = Icons.create_lucide_button("plus", "Zoom in (Ctrl++)", 14);
+            plus_btn.clicked.connect(() => {
+                zoom_in();
+                show_zoom_entry();
+            });
+            value_row.append(plus_btn);
+            menu.append(value_row);
+
+            var fit_item = zoom_menu_row("Zoom to fit", "Shift+1");
+            fit_item.clicked.connect(() => {
+                canvas.zoom_to_fit();
+                zoom_popover.popdown();
+            });
+            menu.append(fit_item);
+
+            int[] named = { 50, 100, 200 };
+            for (int i = 0; i < named.length; i++) {
+                int pct = named[i];
+                var item = zoom_menu_row("Zoom to %d%%".printf(pct), "");
                 item.clicked.connect(() => {
                     apply_zoom_percent(pct);
                     zoom_popover.popdown();
                 });
                 menu.append(item);
-                zoom_preset_buttons[index] = item;
             }
 
             zoom_popover.child = menu;
             zoom_popover.show.connect(() => {
-                zoom_entry.text = "%d".printf(canvas.get_zoom_percentage());
-                mark_zoom_preset();
+                show_zoom_entry();
                 GLib.Idle.add(() => {
                     zoom_entry.grab_focus();
                     zoom_entry.select_region(0, -1);
@@ -263,6 +269,36 @@ namespace Nova {
             });
             button.popover = zoom_popover;
             return button;
+        }
+
+        private Gtk.Button zoom_menu_row(string label, string badge) {
+            var btn = new Gtk.Button();
+            btn.add_css_class("flat");
+            btn.add_css_class("nova-dock-menu-item");
+            var row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 12);
+            var lbl = new Gtk.Label(label);
+            lbl.xalign = 0;
+            lbl.hexpand = true;
+            row.append(lbl);
+            if (badge.length > 0) {
+                var sc = new Gtk.Label(badge);
+                sc.add_css_class("nova-shortcut-badge");
+                row.append(sc);
+            }
+            btn.child = row;
+            return btn;
+        }
+
+        private void zoom_in() {
+            canvas.zoom_at(canvas.zoom * 1.15, canvas.get_width() / 2.0, canvas.get_height() / 2.0);
+        }
+
+        private void zoom_out() {
+            canvas.zoom_at(canvas.zoom * 0.85, canvas.get_width() / 2.0, canvas.get_height() / 2.0);
+        }
+
+        private void show_zoom_entry() {
+            zoom_entry.text = "%d".printf(canvas.get_zoom_percentage());
         }
 
         private void apply_zoom_entry() {
@@ -276,14 +312,6 @@ namespace Nova {
         private void apply_zoom_percent(int pct) {
             double zoom = pct / 100.0;
             canvas.zoom_at(zoom, canvas.get_width() / 2.0, canvas.get_height() / 2.0);
-        }
-
-        private void mark_zoom_preset() {
-            int current = canvas.get_zoom_percentage();
-            for (int i = 0; i < zoom_preset_buttons.length; i++) {
-                if (zoom_preset_values[i] == current) zoom_preset_buttons[i].add_css_class("active");
-                else zoom_preset_buttons[i].remove_css_class("active");
-            }
         }
 
         private void build_layout(Adw.HeaderBar header) {
@@ -1475,7 +1503,6 @@ namespace Nova {
             });
             canvas.zoom_changed.connect((z) => {
                 zoom_label.label = "%d%%".printf(canvas.get_zoom_percentage());
-                mark_zoom_preset();
             });
             canvas.geometry_changed.connect(() => {
                 update_inspector();
@@ -1867,6 +1894,13 @@ namespace Nova {
                     return true;
                 }
 
+                if (ctrl && !alt && (keyval == Gdk.Key.plus || keyval == Gdk.Key.equal || keyval == Gdk.Key.KP_Add)) {
+                    zoom_in(); return true;
+                }
+                if (ctrl && !alt && !shift && (keyval == Gdk.Key.minus || keyval == Gdk.Key.KP_Subtract)) {
+                    zoom_out(); return true;
+                }
+
                 if (ctrl && !shift && !alt) {
                     if (keyval == Gdk.Key.z || keyval == Gdk.Key.Z) {
                         canvas.undo(); return true;
@@ -1969,6 +2003,9 @@ namespace Nova {
                         if (shift) activate_tool("pencil");
                         else activate_tool("pen");
                         return true;
+                    }
+                    if (shift && (keyval == Gdk.Key.@1 || keyval == Gdk.Key.KP_1)) {
+                        canvas.zoom_to_fit(); return true;
                     }
                     if (shift && (keyval == Gdk.Key.@2 || keyval == Gdk.Key.KP_2)) {
                         canvas.zoom_to_selection(); return true;

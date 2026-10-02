@@ -72,7 +72,9 @@ namespace Nova {
             add_shortcut(group_view, "Middle-Click Pan", "Middle Click + Drag");
             add_shortcut(group_view, "Smooth Scroll Zoom", "<Primary>Scroll");
             add_shortcut(group_view, "Pinch to Zoom", "Touchpad Pinch");
-            add_shortcut(group_view, "Zoom to Fit", "<Primary>0");
+            add_shortcut(group_view, "Zoom In", "<Primary>plus");
+            add_shortcut(group_view, "Zoom Out", "<Primary>minus");
+            add_shortcut(group_view, "Zoom to Fit", "<Shift>1");
             add_shortcut(group_view, "Zoom to 100%", "<Primary>1");
             add_shortcut(group_view, "Zoom to Selection", "<Shift>2");
             page.add(group_view);
