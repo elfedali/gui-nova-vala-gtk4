@@ -235,13 +235,15 @@
     background-color: alpha(currentColor, 0.08);
 }
 
-.nova-dock .nova-tool-btn:checked {
+.nova-dock .nova-tool-btn:checked,
+.nova-dock .nova-tool-btn.active {
     opacity: 1.0;
     background-color: @accent_color;
     color: #ffffff;
 }
 
-.nova-dock .nova-tool-btn:checked image {
+.nova-dock .nova-tool-btn:checked image,
+.nova-dock .nova-tool-btn.active image {
     color: #ffffff;
 }
 

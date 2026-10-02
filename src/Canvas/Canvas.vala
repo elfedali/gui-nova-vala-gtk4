@@ -71,6 +71,9 @@ namespace Nova {
         public Shape? pen_draft_path { get; private set; default = null; }
         private Point? pen_hover_pt = null;
 
+        // True once this press crosses the drag threshold, so a click can still place a shape.
+        private bool press_became_drag = false;
+
         // Gestures & Controllers
         private Gtk.GestureClick click_gesture;
         private Gtk.GestureDrag drag_gesture;
@@ -655,6 +658,7 @@ namespace Nova {
             click_gesture = new Gtk.GestureClick();
             click_gesture.set_button(1);
             click_gesture.pressed.connect(on_pressed);
+            click_gesture.released.connect(on_click_released);
             this.add_controller(click_gesture);
 
             // Drag gesture (drag begin, update, end). Grouped with the click
@@ -715,6 +719,7 @@ namespace Nova {
         }
 
         private void on_pressed(int n_press, double x, double y) {
+            press_became_drag = false;
             this.grab_focus();
             double doc_x, doc_y;
             to_document(x, y, out doc_x, out doc_y);
@@ -839,7 +844,60 @@ namespace Nova {
             }
         }
 
+        private void on_click_released(int n_press, double x, double y) {
+            if (press_became_drag) {
+                press_became_drag = false;
+                return;
+            }
+            if (n_press != 1 || space_held || !tool_places_on_click(tool)) return;
+            place_shape_at_click(x, y);
+        }
+
+        private static bool tool_places_on_click(string t) {
+            return t == "frame" || t == "text" || t == "rect" || t == "ellipse"
+                || t == "polygon" || t == "star" || t == "line" || t == "arrow";
+        }
+
+        // A click with a creation tool drops a default-size object, then returns to Select.
+        private void place_shape_at_click(double x, double y) {
+            double doc_x, doc_y;
+            to_document(x, y, out doc_x, out doc_y);
+            snap_draw_point(doc_x, doc_y, out doc_x, out doc_y);
+
+            ShapeType stype = ShapeType.from_string(tool);
+            var shape = new Shape(stype);
+            shape.x = doc_x;
+            shape.y = doc_y;
+            shape.color = pen_color;
+            if (stype == ShapeType.FRAME) {
+                shape.color = Color.rgb(1.0, 1.0, 1.0);
+                shape.w = 393.0;
+                shape.h = 852.0;
+                int count = 1;
+                for (uint i = 0; i < document.shapes.length; i++) {
+                    if (document.shapes[i].shape_type == ShapeType.FRAME) count++;
+                }
+                shape.name = "iPhone 15 - %d".printf(count);
+                shape.frame_preset = "iPhone 15 (393 × 852)";
+            } else if (stype == ShapeType.TEXT) {
+                shape.color = Color.rgb(0.1, 0.1, 0.1);
+                shape.w = 64.0;
+                shape.h = 24.0;
+            } else if (stype == ShapeType.LINE || stype == ShapeType.ARROW) {
+                shape.w = 100.0;
+                shape.h = 0.0;
+            } else {
+                shape.w = 100.0;
+                shape.h = 100.0;
+            }
+
+            Shape added = document.add_shape(shape, true);
+            select_shape(added);
+            set_tool("select");
+        }
+
         private void on_drag_begin(double start_x, double start_y) {
+            press_became_drag = true;
             drag_start_x = start_x;
             drag_start_y = start_y;
             to_document(start_x, start_y, out doc_drag_start_x, out doc_drag_start_y);
