@@ -40,6 +40,7 @@ namespace Nova {
         private Gtk.SpinButton h_spin;
         private Gtk.SpinButton rot_spin;
 
+        private Gtk.Box radius_section;
         private Gtk.Scale radius_scale;
         private Gtk.SpinButton radius_spin;
         private Gtk.ToggleButton indep_radius_toggle;
@@ -972,6 +973,7 @@ namespace Nova {
         }
 
         private void build_radius_section(Gtk.Box parent) {
+            radius_section = new Gtk.Box(Gtk.Orientation.VERTICAL, 4);
             var row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
             var lbl = new Gtk.Label("CORNER RADIUS");
             lbl.add_css_class("figma-section-header");
@@ -984,7 +986,7 @@ namespace Nova {
                 indep_radius_box.visible = indep_radius_toggle.active;
             });
             row.append(indep_radius_toggle);
-            parent.append(row);
+            radius_section.append(row);
 
             var u_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
             radius_scale = new Gtk.Scale.with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1);
@@ -1007,7 +1009,7 @@ namespace Nova {
                 canvas.set_selected_corner_radius(CornerRadii.uniform(r));
             });
             u_box.append(radius_spin);
-            parent.append(u_box);
+            radius_section.append(u_box);
 
             indep_radius_box = new Gtk.Box(Gtk.Orientation.VERTICAL, 4);
             var indep_grid = new Gtk.Grid();
@@ -1037,7 +1039,8 @@ namespace Nova {
             indep_radius_box.append(indep_grid);
 
             indep_radius_box.visible = false;
-            parent.append(indep_radius_box);
+            radius_section.append(indep_radius_box);
+            parent.append(radius_section);
         }
 
         private void build_opacity_section(Gtk.Box parent) {
@@ -1528,6 +1531,7 @@ namespace Nova {
             Shape? s = canvas.primary_selected;
 
             node_edit_box.visible = canvas.is_in_node_edit_mode();
+            radius_section.visible = s != null && s.shape_type == ShapeType.RECT;
             text_section.visible = (s != null && s.shape_type == ShapeType.TEXT);
             polygon_section.visible = (s != null && s.shape_type == ShapeType.POLYGON);
             star_section.visible = (s != null && s.shape_type == ShapeType.STAR);

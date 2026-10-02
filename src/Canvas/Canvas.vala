@@ -345,8 +345,11 @@ namespace Nova {
         }
 
         public void set_selected_corner_radius(CornerRadii radius) {
+            bool first = true;
             for (uint i = 0; i < selected_shapes.length; i++) {
-                document.set_corner_radius(selected_shapes[i], radius, (i == 0));
+                if (selected_shapes[i].shape_type == ShapeType.FRAME) continue;
+                document.set_corner_radius(selected_shapes[i], radius, first);
+                first = false;
             }
         }
 
@@ -556,11 +559,8 @@ namespace Nova {
             cr.translate(pan_x, pan_y);
             cr.scale(zoom, zoom);
 
-            // Paint all document shapes
-            for (uint i = 0; i < document.shapes.length; i++) {
-                unowned Shape s = document.shapes[i];
-                Render.paint_shape(cr, s, Color.rgb(0.2, 0.2, 0.2), false, zoom, true);
-            }
+            // Paint all document shapes. Frame children are clipped; selection is drawn after.
+            Render.paint_shapes(cr, document.shapes, Color.rgb(0.2, 0.2, 0.2), false, zoom, true);
 
             // Paint live drafting shape if creating
             if (draft_shape != null) {
@@ -583,7 +583,7 @@ namespace Nova {
                     unowned Shape s = selected_shapes[0];
                     Rect bbox = Render.selection_bounds(s, 0.0, zoom);
                     CornerRadii? radii = null;
-                    if (s.shape_type == ShapeType.RECT || s.shape_type == ShapeType.FRAME) {
+                    if (s.shape_type == ShapeType.RECT) {
                         radii = Geometry.get_corner_radii(s);
                     }
                     Render.paint_selection_bounds(cr, bbox, accent_color, zoom, radii);
@@ -796,7 +796,7 @@ namespace Nova {
                     unowned Shape s = selected_shapes[0];
                     Rect bbox = Render.selection_bounds(s, 0.0, zoom);
                     CornerRadii? radii = null;
-                    if (s.shape_type == ShapeType.RECT || s.shape_type == ShapeType.FRAME) {
+                    if (s.shape_type == ShapeType.RECT) {
                         radii = Geometry.get_corner_radii(s);
                     }
                     string? handle = Render.hit_handle(bbox, doc_x, doc_y, Render.HANDLE_SIZE, zoom, radii);
@@ -806,29 +806,25 @@ namespace Nova {
                     }
                 }
 
-                Shape? hit = document.hit_test(doc_x, doc_y);
-                if (hit == null) {
-                    hit = frame_header_at(doc_x, doc_y);
+                Shape? header = frame_header_at(doc_x, doc_y);
+                if (header != null) {
+                    pick_shape(header);
+                    return;
                 }
-                if (hit != null) {
-                    if (shift_held) {
-                        toggle_selection(hit);
-                    } else {
-                        bool already_selected = false;
-                        for (uint i = 0; i < selected_shapes.length; i++) {
-                            if (selected_shapes[i] == hit) {
-                                already_selected = true;
-                                break;
-                            }
-                        }
-                        if (!already_selected) {
-                            select_shape(hit);
-                        }
-                    }
-                } else {
+
+                Shape? hit = document.hit_test(doc_x, doc_y);
+                if (hit != null && hit.shape_type == ShapeType.FRAME && !frame_body_selects(hit, doc_x, doc_y)) {
                     if (!shift_held) {
                         clear_selection();
                     }
+                    return;
+                }
+                if (hit != null) {
+                    pick_shape(hit);
+                    return;
+                }
+                if (!shift_held) {
+                    clear_selection();
                 }
             }
         }
@@ -899,9 +895,10 @@ namespace Nova {
                     return;
                 }
 
-                Shape? under = document.hit_test(doc_drag_start_x, doc_drag_start_y);
-                if (under == null) {
-                    under = frame_header_at(doc_drag_start_x, doc_drag_start_y);
+                Shape? header = frame_header_at(doc_drag_start_x, doc_drag_start_y);
+                Shape? under = header ?? document.hit_test(doc_drag_start_x, doc_drag_start_y);
+                if (under != null && header == null && under.shape_type == ShapeType.FRAME && !frame_body_selects(under, doc_drag_start_x, doc_drag_start_y)) {
+                    under = null;
                 }
                 if (selected_shapes.length > 0 && under != null && !under.locked) {
                     drag_mode = "move";
@@ -1187,8 +1184,21 @@ namespace Nova {
                     draft_shape.w = snap_px(draft_shape.w);
                     draft_shape.h = snap_px(draft_shape.h);
                 } else if (draft_shape.w < 4.0 && draft_shape.h < 4.0) {
-                    draft_shape.w = 100.0;
-                    draft_shape.h = 100.0;
+                    if (tool == "frame") {
+                        draft_shape.w = 393.0;
+                        draft_shape.h = 852.0;
+                        int count = 1;
+                        for (uint i = 0; i < document.shapes.length; i++) {
+                            if (document.shapes[i].shape_type == ShapeType.FRAME) count++;
+                        }
+                        draft_shape.name = "iPhone 15 - %d".printf(count);
+                        draft_shape.frame_preset = "iPhone 15 (393 × 852)";
+                    } else {
+                        draft_shape.w = 100.0;
+                        draft_shape.h = 100.0;
+                    }
+                } else if (tool == "frame") {
+                    draft_shape.frame_preset = "Custom";
                 }
                 draft_shape.x = snap_px(draft_shape.x);
                 draft_shape.y = snap_px(draft_shape.y);
@@ -1220,6 +1230,7 @@ namespace Nova {
                     }
                     for (uint i = 0; i < document.shapes.length; i++) {
                         unowned Shape s = document.shapes[i];
+                        if (s.shape_type == ShapeType.FRAME) continue;
                         if (!s.visible || !Geometry.shape_intersects_rect(s, rx, ry, rw, rh)) {
                             continue;
                         }
@@ -1298,6 +1309,27 @@ namespace Nova {
             pan_y -= my;
             queue_draw();
             return true;
+        }
+
+        private bool frame_body_selects(Shape frame, double x, double y) {
+            if (document.get_frame_children(frame).length == 0) {
+                return true;
+            }
+            double margin = 6.0 / double.max(1e-6, zoom);
+            return Geometry.hit_test_frame_border(frame, x, y, margin);
+        }
+
+        private void pick_shape(Shape hit) {
+            if (shift_held) {
+                toggle_selection(hit);
+                return;
+            }
+            for (uint i = 0; i < selected_shapes.length; i++) {
+                if (selected_shapes[i] == hit) {
+                    return;
+                }
+            }
+            select_shape(hit);
         }
 
         private Shape? frame_header_at(double doc_x, double doc_y) {

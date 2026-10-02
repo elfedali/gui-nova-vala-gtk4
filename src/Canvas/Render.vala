@@ -37,8 +37,11 @@ namespace Nova {
             }
 
             switch (shape.shape_type) {
-                case ShapeType.RECT:
                 case ShapeType.FRAME:
+                    cr.rectangle(x, y, width, height);
+                    return true;
+
+                case ShapeType.RECT:
                 case ShapeType.IMAGE:
                     CornerRadii radii = Geometry.get_corner_radii(shape);
                     if (radii.is_zero()) {
@@ -148,6 +151,52 @@ namespace Nova {
                 default:
                     return false;
             }
+        }
+
+        public static void paint_shapes(Cairo.Context cr, GLib.GenericArray<Shape> shapes, Color outline,
+                                        bool preview = false, double zoom = 1.0, bool chrome = true) {
+            for (uint i = 0; i < shapes.length; i++) {
+                paint_shape_in_frame(cr, shapes[i], shapes, outline, preview, zoom, chrome);
+            }
+        }
+
+        private static void paint_shape_in_frame(Cairo.Context cr, Shape shape, GLib.GenericArray<Shape> shapes,
+                                                 Color outline, bool preview, double zoom, bool chrome) {
+            Shape? frame = clip_frame_for(shape, shapes);
+            if (frame == null) {
+                paint_shape(cr, shape, outline, preview, zoom, chrome);
+                return;
+            }
+            cr.save();
+            clip_to_frame(cr, frame);
+            paint_shape(cr, shape, outline, preview, zoom, chrome);
+            cr.restore();
+        }
+
+        private static Shape? clip_frame_for(Shape shape, GLib.GenericArray<Shape> shapes) {
+            if (shape.frame_id == null || shape.shape_type == ShapeType.FRAME) return null;
+            for (uint i = 0; i < shapes.length; i++) {
+                unowned Shape candidate = shapes[i];
+                if (candidate.id == shape.frame_id && candidate.shape_type == ShapeType.FRAME &&
+                    candidate.w > 0.0 && candidate.h > 0.0) {
+                    return candidate;
+                }
+            }
+            return null;
+        }
+
+        private static void clip_to_frame(Cairo.Context cr, Shape frame) {
+            double rotation = frame.rotation % 360.0;
+            if (rotation != 0.0) {
+                double cx = frame.x + frame.w / 2.0;
+                double cy = frame.y + frame.h / 2.0;
+                cr.translate(cx, cy);
+                cr.rotate(rotation * Math.PI / 180.0);
+                cr.translate(-cx, -cy);
+            }
+            cr.new_path();
+            cr.rectangle(frame.x, frame.y, frame.w, frame.h);
+            cr.clip();
         }
 
         public static void paint_shape(Cairo.Context cr, Shape shape, Color outline,

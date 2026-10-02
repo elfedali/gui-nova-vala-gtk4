@@ -19,9 +19,7 @@ namespace Nova {
             cr.scale(factor, factor);
             cr.translate(-origin_x, -origin_y);
 
-            for (uint i = 0; i < shapes.length; i++) {
-                Render.paint_shape(cr, shapes[i], Color.rgb(0.2, 0.2, 0.2), false, 1.0, false);
-            }
+            Render.paint_shapes(cr, shapes, Color.rgb(0.2, 0.2, 0.2), false, 1.0, false);
             surface.flush();
             return surface;
         }
@@ -62,9 +60,7 @@ namespace Nova {
             cr.scale(fit, fit);
             cr.translate(-bounds.x, -bounds.y);
 
-            for (uint i = 0; i < shapes.length; i++) {
-                Render.paint_shape(cr, shapes[i], Color.rgb(0.2, 0.2, 0.2), false, 1.0, false);
-            }
+            Render.paint_shapes(cr, shapes, Color.rgb(0.2, 0.2, 0.2), false, 1.0, false);
             cr.restore();
         }
 

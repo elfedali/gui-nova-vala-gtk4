@@ -143,8 +143,18 @@ namespace Nova {
             emit_leaf(sb, shape, origin_x, origin_y, used_ids, depth + 1, false);
 
             var children = Geometry.get_frame_children(shape, all_shapes);
-            for (uint i = 0; i < children.length; i++) {
-                emit_shape(sb, children[i], all_shapes, origin_x, origin_y, used_ids, depth + 1);
+            if (children.length > 0) {
+                string clip_id = xml_id("frame-clip", used_ids);
+                string child_pad = string.nfill((depth + 1) * 2, ' ');
+                sb.append("%s<defs><clipPath id=\"%s\"><rect x=\"%s\" y=\"%s\" width=\"%s\" height=\"%s\"/></clipPath></defs>\n".printf(
+                    child_pad, clip_id,
+                    num(shape.x - origin_x), num(shape.y - origin_y),
+                    num(shape.w), num(shape.h)));
+                sb.append("%s<g clip-path=\"url(#%s)\">\n".printf(child_pad, clip_id));
+                for (uint i = 0; i < children.length; i++) {
+                    emit_shape(sb, children[i], all_shapes, origin_x, origin_y, used_ids, depth + 2);
+                }
+                sb.append("%s</g>\n".printf(child_pad));
             }
 
             sb.append("%s</g>\n".printf(pad));
