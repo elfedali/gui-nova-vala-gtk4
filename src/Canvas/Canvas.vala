@@ -25,6 +25,11 @@ namespace Nova {
 
         private Shape? draft_shape = null;
         private string drag_mode = "none";
+        public bool dragging {
+            get {
+                return drag_mode == "move" || drag_mode == "resize" || drag_mode == "rotate" || drag_mode == "radius";
+            }
+        }
         private string? active_handle = null;
         private double drag_start_x = 0.0;
         private double drag_start_y = 0.0;
@@ -563,8 +568,12 @@ namespace Nova {
             cr.translate(pan_x, pan_y);
             cr.scale(zoom, zoom);
 
-            // Paint all document shapes. Frame children are clipped; selection is drawn after.
-            Render.paint_shapes(cr, document.shapes, Color.rgb(0.2, 0.2, 0.2), false, zoom, true);
+            double view_x0, view_y0, view_x1, view_y1;
+            to_document(-80.0, -80.0, out view_x0, out view_y0);
+            to_document(width + 80.0, height + 80.0, out view_x1, out view_y1);
+
+            // Paint shapes on screen. Frame children are clipped; selection is drawn after.
+            Render.paint_shapes(cr, document.shapes, Color.rgb(0.2, 0.2, 0.2), false, zoom, true, true, true, view_x0, view_y0, view_x1, view_y1);
 
             // Paint live drafting shape if creating
             if (draft_shape != null) {
@@ -969,7 +978,7 @@ namespace Nova {
                 if (alt_held && !alt_copy_done && (Math.fabs(total_dx) > 1.0 || Math.fabs(total_dy) > 1.0)) {
                     alt_copy_done = true;
                     for (uint i = 0; i < drag_shapes.length; i++) {
-                        document.move_shape(drag_shapes[i], drag_origin_x[i], drag_origin_y[i], false);
+                        document.move_shape(drag_shapes[i], drag_origin_x[i], drag_origin_y[i], false, false);
                     }
                     var copies = new GLib.GenericArray<Shape>();
                     for (uint i = 0; i < drag_shapes.length; i++) {
@@ -999,7 +1008,7 @@ namespace Nova {
                     if (s.frame_id != null && moving_frames.contains(s.frame_id)) {
                         continue;
                     }
-                    document.move_shape(s, snap_px(drag_origin_x[i] + total_dx) + adj_x, snap_px(drag_origin_y[i] + total_dy) + adj_y, false);
+                    document.move_shape(s, snap_px(drag_origin_x[i] + total_dx) + adj_x, snap_px(drag_origin_y[i] + total_dy) + adj_y, false, false);
                 }
                 geometry_changed();
                 queue_draw();
@@ -1220,43 +1229,46 @@ namespace Nova {
             double x_target1 = 0.0;
             double y_target0 = 0.0;
             double y_target1 = 0.0;
+            double[] lefts = new double[drag_shapes.length];
+            double[] tops = new double[drag_shapes.length];
+            double[] rights = new double[drag_shapes.length];
+            double[] bottoms = new double[drag_shapes.length];
+            bool[] live = new bool[drag_shapes.length];
             for (uint i = 0; i < drag_shapes.length; i++) {
                 unowned Shape s = drag_shapes[i];
-                if (s.frame_id != null && moving_frames.contains(s.frame_id)) continue;
-                double left = snap_px(drag_origin_x[i] + total_dx);
-                double top = snap_px(drag_origin_y[i] + total_dy);
-                double right = left + s.w;
-                double bottom = top + s.h;
-                double[] move_x = { left, right };
-                double[] move_y = { top, bottom };
-                for (int e = 0; e < 2; e++) {
-                    double hit, span0, span1;
-                    if (closest_edge(move_x[e], true, thresh, ignore, moving_frames, out hit, out span0, out span1)) {
-                        double delta = Math.fabs(hit - move_x[e]);
-                        if (delta <= best_x) {
-                            best_x = delta;
-                            found_x = true;
-                            adj_x = hit - move_x[e];
-                            guide_x = hit;
-                            x_span0 = top;
-                            x_span1 = bottom;
-                            x_target0 = span0;
-                            x_target1 = span1;
-                        }
-                    }
-                    if (closest_edge(move_y[e], false, thresh, ignore, moving_frames, out hit, out span0, out span1)) {
-                        double delta = Math.fabs(hit - move_y[e]);
-                        if (delta <= best_y) {
-                            best_y = delta;
-                            found_y = true;
-                            adj_y = hit - move_y[e];
-                            guide_y = hit;
-                            y_span0 = left;
-                            y_span1 = right;
-                            y_target0 = span0;
-                            y_target1 = span1;
-                        }
-                    }
+                live[i] = !(s.frame_id != null && moving_frames.contains(s.frame_id));
+                lefts[i] = snap_px(drag_origin_x[i] + total_dx);
+                tops[i] = snap_px(drag_origin_y[i] + total_dy);
+                rights[i] = lefts[i] + s.w;
+                bottoms[i] = tops[i] + s.h;
+            }
+            for (uint i = 0; i < document.shapes.length; i++) {
+                unowned Shape other = document.shapes[i];
+                if (!other.visible) continue;
+                if (ignore.contains(other.id)) continue;
+                if (other.frame_id != null && moving_frames.contains(other.frame_id)) continue;
+                double ox0 = other.x;
+                double ox1 = other.x + other.w;
+                double oy0 = other.y;
+                double oy1 = other.y + other.h;
+                for (uint d = 0; d < drag_shapes.length; d++) {
+                    if (!live[d]) continue;
+                    double dx0 = Math.fabs(ox0 - lefts[d]);
+                    double dx1 = Math.fabs(ox1 - lefts[d]);
+                    double dx2 = Math.fabs(ox0 - rights[d]);
+                    double dx3 = Math.fabs(ox1 - rights[d]);
+                    if (dx0 <= best_x) { best_x = dx0; found_x = true; adj_x = ox0 - lefts[d]; guide_x = ox0; x_span0 = tops[d]; x_span1 = bottoms[d]; x_target0 = oy0; x_target1 = oy1; }
+                    if (dx1 <= best_x) { best_x = dx1; found_x = true; adj_x = ox1 - lefts[d]; guide_x = ox1; x_span0 = tops[d]; x_span1 = bottoms[d]; x_target0 = oy0; x_target1 = oy1; }
+                    if (dx2 <= best_x) { best_x = dx2; found_x = true; adj_x = ox0 - rights[d]; guide_x = ox0; x_span0 = tops[d]; x_span1 = bottoms[d]; x_target0 = oy0; x_target1 = oy1; }
+                    if (dx3 <= best_x) { best_x = dx3; found_x = true; adj_x = ox1 - rights[d]; guide_x = ox1; x_span0 = tops[d]; x_span1 = bottoms[d]; x_target0 = oy0; x_target1 = oy1; }
+                    double dy0 = Math.fabs(oy0 - tops[d]);
+                    double dy1 = Math.fabs(oy1 - tops[d]);
+                    double dy2 = Math.fabs(oy0 - bottoms[d]);
+                    double dy3 = Math.fabs(oy1 - bottoms[d]);
+                    if (dy0 <= best_y) { best_y = dy0; found_y = true; adj_y = oy0 - tops[d]; guide_y = oy0; y_span0 = lefts[d]; y_span1 = rights[d]; y_target0 = ox0; y_target1 = ox1; }
+                    if (dy1 <= best_y) { best_y = dy1; found_y = true; adj_y = oy1 - tops[d]; guide_y = oy1; y_span0 = lefts[d]; y_span1 = rights[d]; y_target0 = ox0; y_target1 = ox1; }
+                    if (dy2 <= best_y) { best_y = dy2; found_y = true; adj_y = oy0 - bottoms[d]; guide_y = oy0; y_span0 = lefts[d]; y_span1 = rights[d]; y_target0 = ox0; y_target1 = ox1; }
+                    if (dy3 <= best_y) { best_y = dy3; found_y = true; adj_y = oy1 - bottoms[d]; guide_y = oy1; y_span0 = lefts[d]; y_span1 = rights[d]; y_target0 = ox0; y_target1 = ox1; }
                 }
             }
             if (found_x) {
@@ -1349,15 +1361,23 @@ namespace Nova {
                 if (!shape.visible) continue;
                 if (ignore != null && ignore.contains(shape.id)) continue;
                 if (moving_frames != null && shape.frame_id != null && moving_frames.contains(shape.frame_id)) continue;
-                double[] edges = vertical ? new double[] { shape.x, shape.x + shape.w } : new double[] { shape.y, shape.y + shape.h };
+                double edge0 = vertical ? shape.x : shape.y;
+                double edge1 = vertical ? shape.x + shape.w : shape.y + shape.h;
                 double from = vertical ? shape.y : shape.x;
                 double to = vertical ? shape.y + shape.h : shape.x + shape.w;
-                for (int e = 0; e < edges.length; e++) {
-                    double delta = Math.fabs(edges[e] - value);
-                    if (delta > best) continue;
-                    best = delta;
+                double delta0 = Math.fabs(edge0 - value);
+                if (delta0 <= best) {
+                    best = delta0;
                     found = true;
-                    hit = edges[e];
+                    hit = edge0;
+                    span_start = from;
+                    span_end = to;
+                }
+                double delta1 = Math.fabs(edge1 - value);
+                if (delta1 <= best) {
+                    best = delta1;
+                    found = true;
+                    hit = edge1;
                     span_start = from;
                     span_end = to;
                 }
@@ -1495,8 +1515,12 @@ namespace Nova {
                 }
             }
 
+            string finished = drag_mode;
             drag_mode = "none";
             active_handle = null;
+            if (finished == "move" || finished == "resize" || finished == "rotate" || finished == "radius") {
+                geometry_changed();
+            }
             queue_draw();
         }
 

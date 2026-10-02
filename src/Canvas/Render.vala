@@ -153,11 +153,40 @@ namespace Nova {
             }
         }
 
+        private static GLib.HashTable<string, Shape>? paint_frames = null;
+        private static GLib.HashTable<string, Cairo.ImageSurface>? image_cache = null;
+
         public static void paint_shapes(Cairo.Context cr, GLib.GenericArray<Shape> shapes, Color outline,
-                                        bool preview = false, double zoom = 1.0, bool chrome = true, bool cover_seam = true) {
+                                        bool preview = false, double zoom = 1.0, bool chrome = true, bool cover_seam = true,
+                                        bool cull = false, double view_x0 = 0.0, double view_y0 = 0.0, double view_x1 = 0.0, double view_y1 = 0.0) {
+            paint_frames = new GLib.HashTable<string, Shape>(GLib.str_hash, GLib.str_equal);
             for (uint i = 0; i < shapes.length; i++) {
+                if (shapes[i].shape_type == ShapeType.FRAME) paint_frames.insert(shapes[i].id, shapes[i]);
+            }
+            for (uint i = 0; i < shapes.length; i++) {
+                if (cull && !shape_in_view(shapes[i], view_x0, view_y0, view_x1, view_y1)) continue;
                 paint_shape_in_frame(cr, shapes[i], shapes, outline, preview, zoom, chrome, cover_seam);
             }
+            paint_frames = null;
+        }
+
+        private static bool shape_in_view(Shape shape, double x0, double y0, double x1, double y1) {
+            double left = Math.fmin(shape.x, shape.x + shape.w);
+            double right = Math.fmax(shape.x, shape.x + shape.w);
+            double top = Math.fmin(shape.y, shape.y + shape.h);
+            double bottom = Math.fmax(shape.y, shape.y + shape.h);
+            double rot = shape.rotation % 360.0;
+            if (rot < 0.0) rot += 360.0;
+            if (rot > 0.01 && rot < 359.99) {
+                double cx = (left + right) / 2.0;
+                double cy = (top + bottom) / 2.0;
+                double reach = Math.hypot(shape.w, shape.h) / 2.0;
+                left = cx - reach;
+                right = cx + reach;
+                top = cy - reach;
+                bottom = cy + reach;
+            }
+            return right >= x0 && left <= x1 && bottom >= y0 && top <= y1;
         }
 
         private static void paint_shape_in_frame(Cairo.Context cr, Shape shape, GLib.GenericArray<Shape> shapes,
@@ -175,6 +204,11 @@ namespace Nova {
 
         private static Shape? clip_frame_for(Shape shape, GLib.GenericArray<Shape> shapes) {
             if (shape.frame_id == null || shape.shape_type == ShapeType.FRAME) return null;
+            if (paint_frames != null) {
+                Shape? cached = paint_frames.lookup(shape.frame_id);
+                if (cached != null && cached.w > 0.0 && cached.h > 0.0) return cached;
+                return null;
+            }
             for (uint i = 0; i < shapes.length; i++) {
                 unowned Shape candidate = shapes[i];
                 if (candidate.id == shape.frame_id && candidate.shape_type == ShapeType.FRAME &&
@@ -324,11 +358,7 @@ namespace Nova {
                 return;
             }
             cr.fill_preserve();
-            double dx = 1.0;
-            double dy = 0.0;
-            cr.user_to_device_distance(ref dx, ref dy);
-            double scale = Math.hypot(dx, dy);
-            cr.set_line_width(scale > 1e-6 ? 2.0 / scale : 2.0 / Math.fmax(zoom, 1e-6));
+            cr.set_line_width(2.0 / Math.fmax(zoom, 1e-6));
             cr.set_line_cap(Cairo.LineCap.BUTT);
             cr.set_line_join(Cairo.LineJoin.MITER);
             cr.set_dash(new double[0], 0.0);
@@ -358,6 +388,20 @@ namespace Nova {
             }
         }
 
+        private static Cairo.ImageSurface? cached_image(string? path) {
+            if (path == null) return null;
+            if (image_cache == null) {
+                image_cache = new GLib.HashTable<string, Cairo.ImageSurface>(GLib.str_hash, GLib.str_equal);
+            }
+            Cairo.ImageSurface? hit = image_cache.lookup(path);
+            if (hit != null) return hit;
+            if (!GLib.FileUtils.test(path, GLib.FileTest.EXISTS)) return null;
+            var surface = new Cairo.ImageSurface.from_png(path);
+            if (surface.status() != Cairo.Status.SUCCESS) return null;
+            image_cache.insert(path, surface);
+            return surface;
+        }
+
         private static void paint_image(Cairo.Context cr, Shape shape, Color outline) {
             double x = shape.x;
             double y = shape.y;
@@ -365,9 +409,8 @@ namespace Nova {
             double h = shape.h;
             bool painted = false;
 
-            if (shape.image_path != null && GLib.FileUtils.test(shape.image_path, GLib.FileTest.EXISTS)) {
-                var surface = new Cairo.ImageSurface.from_png(shape.image_path);
-                if (surface.status() == Cairo.Status.SUCCESS) {
+            Cairo.ImageSurface? surface = cached_image(shape.image_path);
+            if (surface != null) {
                     int sw = surface.get_width();
                     int sh = surface.get_height();
                     if (sw > 0 && sh > 0) {
@@ -379,7 +422,6 @@ namespace Nova {
                         cr.restore();
                         painted = true;
                     }
-                }
             }
 
             if (!painted) {

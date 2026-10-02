@@ -1629,6 +1629,10 @@ namespace Nova {
                 zoom_label.label = "%d%%".printf(canvas.get_zoom_percentage());
             });
             canvas.geometry_changed.connect(() => {
+                if (canvas.dragging) {
+                    sync_drag_spins();
+                    return;
+                }
                 update_inspector();
                 refresh_layers();
             });
@@ -1645,6 +1649,18 @@ namespace Nova {
                 export_preview_area.queue_draw();
                 update_doc_colors();
             });
+        }
+
+        private void sync_drag_spins() {
+            Shape? s = canvas.primary_selected;
+            if (s == null) return;
+            updating_inspector = true;
+            x_spin.value = s.x;
+            y_spin.value = s.y;
+            w_spin.value = s.w;
+            h_spin.value = s.h;
+            rot_spin.value = s.rotation;
+            updating_inspector = false;
         }
 
         private void update_inspector() {

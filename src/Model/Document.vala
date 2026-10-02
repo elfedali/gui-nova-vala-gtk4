@@ -9,10 +9,13 @@ namespace Nova {
 
         public signal void changed();
 
+        private GLib.HashTable<string, GLib.GenericArray<Shape>>? frame_index = null;
+
         public Document() {
             this.shapes = new GLib.GenericArray<Shape>();
             this.undo_stack = new UndoStack();
             this.clipboard = new Clipboard();
+            this.changed.connect(() => { frame_index = null; });
         }
 
         public void checkpoint() {
@@ -62,7 +65,37 @@ namespace Nova {
         }
 
         public GLib.GenericArray<Shape> get_frame_children(Shape frame) {
-            return Geometry.get_frame_children(frame, shapes);
+            if (frame_index == null) build_frame_index();
+            var copy = new GLib.GenericArray<Shape>();
+            var list = frame_index.lookup(frame.id);
+            if (list == null) return copy;
+            for (uint i = 0; i < list.length; i++) copy.add(list[i]);
+            return copy;
+        }
+
+        private void build_frame_index() {
+            frame_index = new GLib.HashTable<string, GLib.GenericArray<Shape>>(GLib.str_hash, GLib.str_equal);
+            for (uint i = 0; i < shapes.length; i++) {
+                if (shapes[i].shape_type != ShapeType.FRAME) continue;
+                frame_index.insert(shapes[i].id, new GLib.GenericArray<Shape>());
+            }
+            for (uint i = 0; i < shapes.length; i++) {
+                unowned Shape shape = shapes[i];
+                if (shape.shape_type == ShapeType.FRAME) continue;
+                if (shape.frame_id != null) {
+                    var list = frame_index.lookup(shape.frame_id);
+                    if (list != null) list.add(shape);
+                    continue;
+                }
+                double cx = shape.x + shape.w / 2.0;
+                double cy = shape.y + shape.h / 2.0;
+                for (int f = (int) shapes.length - 1; f >= 0; f--) {
+                    if (shapes[f].shape_type == ShapeType.FRAME && Geometry.is_point_in_frame(cx, cy, shapes[f])) {
+                        frame_index.lookup(shapes[f].id).add(shape);
+                        break;
+                    }
+                }
+            }
         }
 
         public string next_shape_name(ShapeType type) {
@@ -149,10 +182,11 @@ namespace Nova {
             return shape;
         }
 
-        public void move_shape(Shape shape, double x, double y, bool record_undo = false) {
+        public void move_shape(Shape shape, double x, double y, bool record_undo = false, bool notify = true) {
             if (record_undo) {
                 checkpoint();
             }
+            if (!record_undo && x == shape.x && y == shape.y) return;
             if (shape.shape_type == ShapeType.FRAME) {
                 x = Math.round(x);
                 y = Math.round(y);
@@ -212,7 +246,7 @@ namespace Nova {
                 shape.y = y;
                 update_frame_containment(shape);
             }
-            changed();
+            if (notify) changed();
         }
 
         public void resize_shape(Shape shape, double width, double height, bool record_undo = false) {
@@ -864,6 +898,7 @@ namespace Nova {
         }
 
         public Shape? update_frame_containment(Shape shape) {
+            frame_index = null;
             if (shape.shape_type == ShapeType.FRAME) return null;
 
             double cx = shape.x + shape.w / 2.0;
@@ -908,23 +943,17 @@ namespace Nova {
         }
 
         public Shape? hit_test(double x, double y) {
-            // First check non-frame shapes from top to bottom
+            Shape? frame_hit = null;
             for (int i = (int) shapes.length - 1; i >= 0; i--) {
                 unowned Shape s = shapes[i];
-                if (!s.visible) continue;
-                if (s.shape_type != ShapeType.FRAME && Geometry.contains_point(s, x, y)) {
+                if (!s.visible || !Geometry.contains_point(s, x, y)) continue;
+                if (s.shape_type == ShapeType.FRAME) {
+                    if (frame_hit == null) frame_hit = s;
+                } else {
                     return s;
                 }
             }
-            // Then check frames
-            for (int i = (int) shapes.length - 1; i >= 0; i--) {
-                unowned Shape s = shapes[i];
-                if (!s.visible) continue;
-                if (s.shape_type == ShapeType.FRAME && Geometry.contains_point(s, x, y)) {
-                    return s;
-                }
-            }
-            return null;
+            return frame_hit;
         }
 
         public int index_of(Shape shape) {
