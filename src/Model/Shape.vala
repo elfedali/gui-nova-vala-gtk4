@@ -71,63 +71,54 @@ namespace Nova {
             this.points = new GLib.GenericArray<Point?>();
             this.nodes = new GLib.GenericArray<PathNode>();
 
+            this.name = default_name(stype);
             switch (stype) {
-                case ShapeType.RECT:
-                    this.name = "Rectangle";
-                    break;
-                case ShapeType.ELLIPSE:
-                    this.name = "Ellipse";
-                    break;
                 case ShapeType.FRAME:
-                    this.name = "Frame";
                     this.color = Color.rgb(1.0, 1.0, 1.0);
                     break;
                 case ShapeType.TEXT:
-                    this.name = "Text";
                     this.color = Color.rgb(0.1, 0.1, 0.1);
                     break;
                 case ShapeType.POLYGON:
-                    this.name = "Polygon";
                     this.sides = 5;
                     break;
                 case ShapeType.STAR:
-                    this.name = "Star";
                     this.points_count = 5;
                     this.inner_ratio = 0.5;
                     break;
                 case ShapeType.LINE:
-                    this.name = "Line";
-                    this.color = Color.rgb(0.2, 0.2, 0.2);
-                    this.stroke_width = 2.0;
-                    this.stroke_color = Color.rgb(0.2, 0.2, 0.2);
-                    this.has_stroke = true;
-                    break;
                 case ShapeType.ARROW:
-                    this.name = "Arrow";
-                    this.color = Color.rgb(0.2, 0.2, 0.2);
-                    this.stroke_width = 2.0;
-                    this.stroke_color = Color.rgb(0.2, 0.2, 0.2);
-                    this.has_stroke = true;
-                    this.arrow_end = "filled";
-                    break;
                 case ShapeType.PENCIL:
-                    this.name = "Pencil";
                     this.color = Color.rgb(0.2, 0.2, 0.2);
                     this.stroke_width = 2.0;
                     this.stroke_color = Color.rgb(0.2, 0.2, 0.2);
                     this.has_stroke = true;
-                    this.closed = false;
+                    if (stype == ShapeType.ARROW) this.arrow_end = "filled";
+                    if (stype == ShapeType.PENCIL) this.closed = false;
                     break;
                 case ShapeType.PATH:
-                    this.name = "Vector Path";
                     this.closed = true;
                     break;
-                case ShapeType.IMAGE:
-                    this.name = "Image";
+                default:
                     break;
-                case ShapeType.GROUP:
-                    this.name = "Group";
-                    break;
+            }
+        }
+
+        public static string default_name(ShapeType stype) {
+            switch (stype) {
+                case ShapeType.RECT: return "Rectangle";
+                case ShapeType.ELLIPSE: return "Ellipse";
+                case ShapeType.FRAME: return "Frame";
+                case ShapeType.TEXT: return "Text";
+                case ShapeType.POLYGON: return "Polygon";
+                case ShapeType.STAR: return "Star";
+                case ShapeType.LINE: return "Line";
+                case ShapeType.ARROW: return "Arrow";
+                case ShapeType.PENCIL: return "Pencil";
+                case ShapeType.PATH: return "Vector Path";
+                case ShapeType.IMAGE: return "Image";
+                case ShapeType.GROUP: return "Group";
+                default: return "Shape";
             }
         }
 

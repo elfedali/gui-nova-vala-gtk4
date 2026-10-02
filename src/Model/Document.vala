@@ -65,27 +65,37 @@ namespace Nova {
             return Geometry.get_frame_children(frame, shapes);
         }
 
-        public string next_frame_name() {
+        public string next_shape_name(ShapeType type) {
+            string base_name = Shape.default_name(type);
             int max_n = 0;
-            for (uint i = 0; i < shapes.length; i++) {
-                if (shapes[i].shape_type != ShapeType.FRAME) continue;
-                int n = frame_name_index(shapes[i].name);
-                if (n > max_n) max_n = n;
-            }
-            return "Frame %d".printf(max_n + 1);
+            highest_name_index(shapes, base_name, ref max_n);
+            return "%s %d".printf(base_name, max_n + 1);
         }
 
-        private static int frame_name_index(string name) {
-            if (!name.has_prefix("Frame")) return 0;
-            string rest = name.substring(5).strip();
+        private static void highest_name_index(GLib.GenericArray<Shape> list, string base_name, ref int max_n) {
+            for (uint i = 0; i < list.length; i++) {
+                int n = name_index(list[i].name, base_name);
+                if (n > max_n) max_n = n;
+                if (list[i].children.length > 0) {
+                    highest_name_index(list[i].children, base_name, ref max_n);
+                }
+            }
+        }
+
+        private static int name_index(string name, string base_name) {
+            if (!name.has_prefix(base_name)) return 0;
+            string rest = name.substring(base_name.length).strip();
             if (rest.length == 0) return 0;
-            if (!rest[0].isdigit()) return 0;
+            for (int i = 0; i < rest.length; i++) {
+                if (!rest[i].isdigit()) return 0;
+            }
             return int.parse(rest);
         }
 
         public Shape add_shape(Shape shape, bool record_undo = true) {
-            if (shape.shape_type == ShapeType.FRAME && (shape.name == "Frame" || shape.name.length == 0)) {
-                shape.name = next_frame_name();
+            string base_name = Shape.default_name(shape.shape_type);
+            if (shape.name.length == 0 || shape.name == base_name) {
+                shape.name = next_shape_name(shape.shape_type);
             }
 
             double nx, ny, nw, nh;
@@ -324,6 +334,10 @@ namespace Nova {
             if (in_dy != null) dy = in_dy;
 
             Shape clone = shape.clone();
+            string base_name = Shape.default_name(clone.shape_type);
+            if (clone.name == base_name || name_index(clone.name, base_name) > 0) {
+                clone.name = base_name;
+            }
             clone.x += dx;
             clone.y += dy;
             if (clone.shape_type == ShapeType.GROUP) {
@@ -481,7 +495,7 @@ namespace Nova {
             }
 
             var group = new Shape(ShapeType.GROUP);
-            group.name = "Group";
+            group.name = next_shape_name(ShapeType.GROUP);
             group.x = bbox.x;
             group.y = bbox.y;
             group.w = bbox.width;

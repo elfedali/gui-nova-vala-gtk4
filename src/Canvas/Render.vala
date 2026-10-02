@@ -491,19 +491,31 @@ namespace Nova {
         private static void paint_frame_header(Cairo.Context cr, Shape shape, double zoom = 1.0) {
             double x = shape.x;
             double y = shape.y;
-            double w = shape.w;
-            double h = shape.h;
             string name = shape.name.length > 0 ? shape.name : "Frame";
-            string label = (shape.frame_preset == null || shape.frame_preset == "Custom") ?
-                           "%s (%d×%d)".printf(name, (int) w, (int) h) : "%s · %s".printf(name, shape.frame_preset);
             double z = Math.fmax(1e-6, zoom);
             cr.save();
             cr.select_font_face("Sans", Cairo.FontSlant.NORMAL, Cairo.FontWeight.BOLD);
             cr.set_font_size(11.0 / z);
+            string label = fit_label(cr, name, Math.fmax(0.0, shape.w));
             cr.set_source_rgba(0.45, 0.45, 0.5, 0.9);
             cr.move_to(x, y - 6.0 / z);
             cr.show_text(label);
             cr.restore();
+        }
+
+        private static string fit_label(Cairo.Context cr, string text, double max_width) {
+            Cairo.TextExtents ext;
+            cr.text_extents(text, out ext);
+            if (ext.x_advance <= max_width) return text;
+            const string ellipsis = "…";
+            int chars = (int) text.char_count();
+            while (chars > 1) {
+                chars--;
+                string candidate = text.substring(0, text.index_of_nth_char(chars)) + ellipsis;
+                cr.text_extents(candidate, out ext);
+                if (ext.x_advance <= max_width) return candidate;
+            }
+            return ellipsis;
         }
 
         public static Rect selection_bounds(Shape shape, double pad = SELECTION_PAD, double zoom = 1.0) {

@@ -15,18 +15,20 @@ namespace Nova {
         private Gtk.Button toggle_all_vis_btn;
 
         // Floating dock tool buttons
-        private Gtk.ToggleButton select_tool_btn;
-        private Gtk.ToggleButton hand_tool_btn;
+        private Gtk.ToggleButton nav_tool_btn;
         private Gtk.ToggleButton frame_tool_btn;
         private Gtk.ToggleButton shape_tool_btn;
         private Gtk.ToggleButton draw_tool_btn;
         private Gtk.ToggleButton text_tool_btn;
+        private Gtk.Image nav_icon;
         private Gtk.Image shape_icon;
         private Gtk.Image draw_icon;
+        private Gtk.Popover nav_popover;
         private Gtk.Popover frame_popover;
         private Gtk.Popover shape_popover;
         private Gtk.Popover draw_popover;
 
+        private string current_nav_tool = "select";
         private string current_shape_tool = "rect";
         private string current_draw_tool = "pen";
         private bool updating_tools = false;
@@ -452,8 +454,12 @@ namespace Nova {
             var dock = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 3);
             dock.add_css_class("nova-dock");
 
-            select_tool_btn = dock_toggle("mouse-pointer-2", "Select & Move (V)");
-            hand_tool_btn = dock_toggle("hand", "Hand (H)");
+            nav_tool_btn = new Gtk.ToggleButton();
+            nav_tool_btn.add_css_class("flat");
+            nav_tool_btn.add_css_class("nova-tool-btn");
+            nav_tool_btn.tooltip_text = "Select & Move (V) - Long-press for hand";
+            nav_icon = Icons.create_lucide_image("mouse-pointer-2", 18);
+            nav_tool_btn.child = nav_icon;
             frame_tool_btn = dock_toggle("frame", "Artboard Frame (F) - Long-press for presets");
             shape_tool_btn = new Gtk.ToggleButton();
             shape_tool_btn.add_css_class("flat");
@@ -469,38 +475,43 @@ namespace Nova {
             draw_tool_btn.child = draw_icon;
             text_tool_btn = dock_toggle("type", "Typography Text (T)");
 
-            hand_tool_btn.set_group(select_tool_btn);
-            frame_tool_btn.set_group(select_tool_btn);
-            shape_tool_btn.set_group(select_tool_btn);
-            draw_tool_btn.set_group(select_tool_btn);
-            text_tool_btn.set_group(select_tool_btn);
+            frame_tool_btn.set_group(nav_tool_btn);
+            shape_tool_btn.set_group(nav_tool_btn);
+            draw_tool_btn.set_group(nav_tool_btn);
+            text_tool_btn.set_group(nav_tool_btn);
 
-            select_tool_btn.toggled.connect(() => {
-                if (select_tool_btn.active) activate_tool("select");
-            });
-            hand_tool_btn.toggled.connect(() => {
-                if (hand_tool_btn.active) activate_tool("hand");
-            });
             frame_tool_btn.toggled.connect(() => {
                 if (frame_tool_btn.active) activate_tool("frame");
             });
             text_tool_btn.toggled.connect(() => {
                 if (text_tool_btn.active) activate_tool("text");
             });
-            select_tool_btn.active = true;
+            nav_tool_btn.active = true;
 
-            Gtk.MenuButton frame_arrow;
-            Gtk.MenuButton shape_arrow;
-            Gtk.MenuButton draw_arrow;
+            Gtk.Button nav_arrow;
+            Gtk.Button frame_arrow;
+            Gtk.Button shape_arrow;
+            Gtk.Button draw_arrow;
+            var nav_slot = dock_slot(nav_tool_btn, out nav_arrow, "Select & Hand");
             var frame_slot = dock_slot(frame_tool_btn, out frame_arrow, "Artboard Presets");
             var shape_slot = dock_slot(shape_tool_btn, out shape_arrow, "Shape & Line Tools");
             var draw_slot = dock_slot(draw_tool_btn, out draw_arrow, "Drawing Tools");
+            nav_popover = build_nav_popover();
             frame_popover = build_frame_popover();
             shape_popover = build_tool_popover(true);
             draw_popover = build_tool_popover(false);
-            frame_arrow.popover = frame_popover;
-            shape_arrow.popover = shape_popover;
-            draw_arrow.popover = draw_popover;
+            nav_popover.set_parent(nav_arrow);
+            frame_popover.set_parent(frame_arrow);
+            shape_popover.set_parent(shape_arrow);
+            draw_popover.set_parent(draw_arrow);
+            nav_arrow.clicked.connect(() => nav_popover.popup());
+            frame_arrow.clicked.connect(() => frame_popover.popup());
+            shape_arrow.clicked.connect(() => shape_popover.popup());
+            draw_arrow.clicked.connect(() => draw_popover.popup());
+            nav_tool_btn.clicked.connect(() => {
+                nav_popover.popdown();
+                activate_tool(current_nav_tool);
+            });
             shape_tool_btn.clicked.connect(() => {
                 shape_popover.popdown();
                 activate_tool(current_shape_tool);
@@ -509,12 +520,12 @@ namespace Nova {
                 draw_popover.popdown();
                 activate_tool(current_draw_tool);
             });
+            setup_slot_gestures(nav_tool_btn, nav_popover);
             setup_slot_gestures(frame_tool_btn, frame_popover);
             setup_slot_gestures(shape_tool_btn, shape_popover);
             setup_slot_gestures(draw_tool_btn, draw_popover);
 
-            dock.append(select_tool_btn);
-            dock.append(hand_tool_btn);
+            dock.append(nav_slot);
             dock.append(frame_slot);
             dock.append(shape_slot);
             dock.append(draw_slot);
@@ -528,19 +539,22 @@ namespace Nova {
             return btn;
         }
 
-        private Gtk.Box dock_slot(Gtk.ToggleButton tool_btn, out Gtk.MenuButton arrow, string arrow_tip) {
-            var slot = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 1);
+        private Gtk.Box dock_slot(Gtk.ToggleButton tool_btn, out Gtk.Button arrow, string arrow_tip) {
+            var slot = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
             slot.add_css_class("nova-dock-slot");
             slot.append(tool_btn);
-            arrow = new Gtk.MenuButton();
+            arrow = new Gtk.Button();
             arrow.add_css_class("flat");
             arrow.add_css_class("nova-dock-arrow-btn");
             arrow.has_frame = false;
-            arrow.direction = Gtk.ArrowType.UP;
-            arrow.child = Icons.create_lucide_image("chevron-down", 12);
+            arrow.child = Icons.create_lucide_image("chevron-down", 10);
             arrow.tooltip_text = arrow_tip;
             slot.append(arrow);
             return slot;
+        }
+
+        private static bool is_nav_tool(string t) {
+            return t == "select" || t == "hand";
         }
 
         private static bool is_shape_tool(string t) {
@@ -555,7 +569,12 @@ namespace Nova {
             if (updating_tools) return;
             updating_tools = true;
 
-            if (is_shape_tool(tname)) {
+            if (is_nav_tool(tname)) {
+                current_nav_tool = tname;
+                Icons.update_image_icon(nav_icon, tname == "hand" ? "hand" : "mouse-pointer-2", 18);
+                nav_tool_btn.tooltip_text = nav_tooltip(tname) + " - Long-press to switch";
+                if (!nav_tool_btn.active) nav_tool_btn.active = true;
+            } else if (is_shape_tool(tname)) {
                 current_shape_tool = tname;
                 Icons.update_image_icon(shape_icon, shape_icon_name(tname), 18);
                 shape_tool_btn.tooltip_text = shape_tooltip(tname) + " - Long-press for shapes";
@@ -566,10 +585,6 @@ namespace Nova {
                 string tip = tname == "pen" ? "Pen Tool (P)" : "Pencil (Shift+P)";
                 draw_tool_btn.tooltip_text = tip + " - Long-press for drawing tools";
                 if (!draw_tool_btn.active) draw_tool_btn.active = true;
-            } else if (tname == "select" && !select_tool_btn.active) {
-                select_tool_btn.active = true;
-            } else if (tname == "hand" && !hand_tool_btn.active) {
-                hand_tool_btn.active = true;
             } else if (tname == "frame" && !frame_tool_btn.active) {
                 frame_tool_btn.active = true;
             } else if (tname == "text" && !text_tool_btn.active) {
@@ -578,6 +593,11 @@ namespace Nova {
 
             if (canvas.tool != tname) canvas.set_tool(tname);
             updating_tools = false;
+        }
+
+        private static string nav_tooltip(string tname) {
+            if (tname == "hand") return "Hand (H)";
+            return "Select & Move (V)";
         }
 
         private static string shape_icon_name(string tname) {
@@ -615,6 +635,42 @@ namespace Nova {
             }
             btn.child = row;
             return btn;
+        }
+
+        private Gtk.Popover build_nav_popover() {
+            var popover = new Gtk.Popover();
+            popover.position = Gtk.PositionType.TOP;
+            popover.add_css_class("nova-dock-popover");
+
+            string[] ids = { "select", "hand" };
+            string[] names = { "Select & Move", "Hand" };
+            string[] icons = { "mouse-pointer-2", "hand" };
+            string[] shortcuts = { "V", "H" };
+
+            var menu = new Gtk.Box(Gtk.Orientation.VERTICAL, 2);
+            menu.margin_top = 4;
+            menu.margin_bottom = 4;
+            menu.margin_start = 4;
+            menu.margin_end = 4;
+            var buttons = new Gtk.Button[ids.length];
+            for (int i = 0; i < ids.length; i++) {
+                string id = ids[i];
+                var item = dock_menu_button(icons[i], names[i], shortcuts[i]);
+                item.clicked.connect(() => {
+                    popover.popdown();
+                    activate_tool(id);
+                });
+                menu.append(item);
+                buttons[i] = item;
+            }
+            popover.show.connect(() => {
+                for (int i = 0; i < ids.length; i++) {
+                    if (ids[i] == current_nav_tool) buttons[i].add_css_class("active");
+                    else buttons[i].remove_css_class("active");
+                }
+            });
+            popover.child = menu;
+            return popover;
         }
 
         private Gtk.Popover build_frame_popover() {
@@ -669,14 +725,52 @@ namespace Nova {
         private void add_preset_frame(int width, int height) {
             var frame = new Shape(ShapeType.FRAME);
             frame.frame_preset = "%d×%d".printf(width, height);
-            frame.x = 80;
-            frame.y = 80;
             frame.w = width;
             frame.h = height;
+            place_new_frame(frame);
             Shape added = document.add_shape(frame, true);
             canvas.select_shape(added);
             activate_tool("select");
             canvas.zoom_to_fit();
+        }
+
+        // Sit the new artboard to the right of the latest one. If that spot is taken, drop it underneath.
+        private void place_new_frame(Shape frame) {
+            const double GAP = 80.0;
+            Shape? anchor = null;
+            for (uint i = 0; i < document.shapes.length; i++) {
+                if (document.shapes[i].shape_type == ShapeType.FRAME) anchor = document.shapes[i];
+            }
+            if (anchor == null) {
+                frame.x = 80;
+                frame.y = 80;
+                return;
+            }
+            frame.x = anchor.x + anchor.w + GAP;
+            frame.y = anchor.y;
+            if (frame_spot_taken(frame)) {
+                frame.x = anchor.x;
+                frame.y = anchor.y + anchor.h + GAP;
+            }
+            int guard = 0;
+            while (frame_spot_taken(frame) && guard < 40) {
+                frame.y += GAP;
+                guard++;
+            }
+            frame.x = Math.round(frame.x);
+            frame.y = Math.round(frame.y);
+        }
+
+        private bool frame_spot_taken(Shape frame) {
+            const double GAP = 80.0;
+            for (uint i = 0; i < document.shapes.length; i++) {
+                Shape other = document.shapes[i];
+                if (other.shape_type != ShapeType.FRAME) continue;
+                bool clear_x = frame.x + frame.w + GAP <= other.x || other.x + other.w + GAP <= frame.x;
+                bool clear_y = frame.y + frame.h + GAP <= other.y || other.y + other.h + GAP <= frame.y;
+                if (!clear_x && !clear_y) return true;
+            }
+            return false;
         }
 
         private Gtk.Popover build_tool_popover(bool shapes) {
@@ -1871,17 +1965,14 @@ namespace Nova {
             box.append(Icons.create_lucide_image(layer_glyph(shape), 14));
 
             var name = new Gtk.Label(shape.name);
-            name.add_css_class("heading");
+            name.add_css_class("nova-layer-name");
             name.xalign = 0.0f;
             name.hexpand = true;
             name.ellipsize = Pango.EllipsizeMode.END;
+            name.max_width_chars = 16;
             name.tooltip_text = shape.name;
             if (!shape.visible) name.add_css_class("dim-label");
             box.append(name);
-
-            var dim = new Gtk.Label("%d×%d".printf((int) shape.w, (int) shape.h));
-            dim.add_css_class("dim-label");
-            box.append(dim);
 
             var lock_btn = Icons.create_lucide_button(shape.locked ? "lock" : "unlock", shape.locked ? "Unlock" : "Lock", 14, "nova-layer-vis-btn");
             lock_btn.clicked.connect(() => {
@@ -1925,7 +2016,7 @@ namespace Nova {
             Gtk.Label? label = null;
             for (Gtk.Widget? child = box.get_first_child(); child != null; child = child.get_next_sibling()) {
                 var candidate = child as Gtk.Label;
-                if (candidate != null && candidate.has_css_class("heading")) {
+                if (candidate != null && candidate.has_css_class("nova-layer-name")) {
                     label = candidate;
                     break;
                 }
