@@ -842,6 +842,8 @@ namespace Nova {
 
             if (space_held || tool == "hand") {
                 drag_mode = "pan";
+                pan_origin_x = pan_x;
+                pan_origin_y = pan_y;
                 return;
             }
 
@@ -948,10 +950,8 @@ namespace Nova {
             }
 
             if (drag_mode == "pan") {
-                pan_x += offset_x;
-                pan_y += offset_y;
-                drag_start_x = cur_x;
-                drag_start_y = cur_y;
+                pan_x = pan_origin_x + offset_x;
+                pan_y = pan_origin_y + offset_y;
                 queue_draw();
                 return;
             }
@@ -1281,18 +1281,22 @@ namespace Nova {
         private bool on_scroll(double dx, double dy) {
             Gdk.ModifierType state = scroll_ctrl.get_current_event_state();
             bool ctrl = (state & Gdk.ModifierType.CONTROL_MASK) != 0;
+            double cx = last_mouse_x > 0.0 ? last_mouse_x : get_width() / 2.0;
+            double cy = last_mouse_y > 0.0 ? last_mouse_y : get_height() / 2.0;
 
+            // Touchpads report pixels. A mouse wheel reports clicks.
+            bool pixels = scroll_ctrl.get_unit() == Gdk.ScrollUnit.SURFACE;
             if (ctrl) {
-                double factor = (dy < 0) ? 1.15 : 0.85;
-                double cx = last_mouse_x > 0.0 ? last_mouse_x : get_width() / 2.0;
-                double cy = last_mouse_y > 0.0 ? last_mouse_y : get_height() / 2.0;
-                zoom_at(zoom * factor, cx, cy);
-            } else {
-                // Pan
-                pan_x -= dx * 20.0;
-                pan_y -= dy * 20.0;
-                queue_draw();
+                double steps = pixels ? dy / 40.0 : dy;
+                zoom_at(zoom * Math.pow(1.15, -steps), cx, cy);
+                return true;
             }
+            if (dx == 0.0 && dy == 0.0) return false;
+            double mx = pixels ? dx : dx * 12.0;
+            double my = pixels ? dy : dy * 12.0;
+            pan_x -= mx;
+            pan_y -= my;
+            queue_draw();
             return true;
         }
 
