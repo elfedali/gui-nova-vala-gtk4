@@ -240,7 +240,7 @@ namespace Nova {
             } else if (shape.shape_type == ShapeType.IMAGE) {
                 paint_image(cr, shape, outline);
             } else {
-                paint_standard_shape(cr, shape, outline);
+                paint_standard_shape(cr, shape, outline, zoom);
             }
 
             if (layer) {
@@ -255,7 +255,7 @@ namespace Nova {
             cr.restore();
         }
 
-        private static void paint_standard_shape(Cairo.Context cr, Shape shape, Color outline) {
+        private static void paint_standard_shape(Cairo.Context cr, Shape shape, Color outline, double zoom) {
             cr.new_path();
             if (!trace_shape(cr, shape)) return;
 
@@ -269,9 +269,9 @@ namespace Nova {
             bool has_custom_stroke = shape.has_stroke && shape.stroke_width > 0;
 
             if (!has_custom_stroke) {
-                cr.fill();
+                fill_without_seam(cr, zoom);
             } else {
-                cr.fill();
+                fill_without_seam(cr, zoom);
                 Color sc = shape.stroke_color;
                 double sw = shape.stroke_width;
 
@@ -314,6 +314,21 @@ namespace Nova {
                     cr.stroke();
                 }
             }
+        }
+
+        // A shared edge is antialiased on both sides, so the canvas shows through as a hairline.
+        // Extend the fill by one screen pixel so touching shapes overlap instead of leaving a gap.
+        private static void fill_without_seam(Cairo.Context cr, double zoom) {
+            cr.fill_preserve();
+            double dx = 1.0;
+            double dy = 0.0;
+            cr.user_to_device_distance(ref dx, ref dy);
+            double scale = Math.hypot(dx, dy);
+            cr.set_line_width(scale > 1e-6 ? 2.0 / scale : 2.0 / Math.fmax(zoom, 1e-6));
+            cr.set_line_cap(Cairo.LineCap.BUTT);
+            cr.set_line_join(Cairo.LineJoin.MITER);
+            cr.set_dash(new double[0], 0.0);
+            cr.stroke();
         }
 
         private static void apply_stroke_caps_joins(Cairo.Context cr, StrokeCap cap, StrokeJoin join) {
@@ -594,15 +609,39 @@ namespace Nova {
             return null;
         }
 
-        public static void paint_selection_bounds(Cairo.Context cr, Rect bbox, Color color,
-                                                 double zoom = 1.0, CornerRadii? radii = null) {
+        public static void paint_shape_outline(Cairo.Context cr, Shape shape, Color color, double zoom = 1.0) {
             double z = Math.fmax(1e-6, zoom);
+            cr.save();
+            double rotation = shape.rotation % 360.0;
+            if (rotation != 0.0) {
+                double cx = shape.x + shape.w / 2.0;
+                double cy = shape.y + shape.h / 2.0;
+                cr.translate(cx, cy);
+                cr.rotate(rotation * Math.PI / 180.0);
+                cr.translate(-cx, -cy);
+            }
             cr.new_path();
-            cr.rectangle(bbox.x, bbox.y, bbox.width, bbox.height);
+            if (!trace_shape(cr, shape)) {
+                cr.rectangle(shape.x, shape.y, shape.w, shape.h);
+            }
             cr.set_source_rgb(color.red, color.green, color.blue);
             cr.set_line_width(1.0 / z);
             cr.set_dash(new double[0], 0.0);
             cr.stroke();
+            cr.restore();
+        }
+
+        public static void paint_selection_bounds(Cairo.Context cr, Rect bbox, Color color,
+                                                 double zoom = 1.0, CornerRadii? radii = null, bool draw_box = true) {
+            double z = Math.fmax(1e-6, zoom);
+            if (draw_box) {
+                cr.new_path();
+                cr.rectangle(bbox.x, bbox.y, bbox.width, bbox.height);
+                cr.set_source_rgb(color.red, color.green, color.blue);
+                cr.set_line_width(1.0 / z);
+                cr.set_dash(new double[0], 0.0);
+                cr.stroke();
+            }
 
             double corner_size = (CORNER_HANDLE_RADIUS * 2.0) / z;
             var centers = handle_centers(bbox, z);

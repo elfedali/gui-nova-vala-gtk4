@@ -64,6 +64,7 @@ namespace Nova {
             add_shortcut(group_arrange, "Scale from Center", "<Alt>Drag Handle");
             add_shortcut(group_arrange, "One Corner Radius", "<Alt>Drag");
             add_shortcut(group_arrange, "Snap to Corner", "Drag near a corner");
+            add_shortcut(group_arrange, "Snap to Border", "Drag near an edge");
             add_shortcut(group_arrange, "Distance Measurement", "<Alt>Hover Shape");
             page.add(group_arrange);
 
