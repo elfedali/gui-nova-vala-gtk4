@@ -154,22 +154,22 @@ namespace Nova {
         }
 
         public static void paint_shapes(Cairo.Context cr, GLib.GenericArray<Shape> shapes, Color outline,
-                                        bool preview = false, double zoom = 1.0, bool chrome = true) {
+                                        bool preview = false, double zoom = 1.0, bool chrome = true, bool cover_seam = true) {
             for (uint i = 0; i < shapes.length; i++) {
-                paint_shape_in_frame(cr, shapes[i], shapes, outline, preview, zoom, chrome);
+                paint_shape_in_frame(cr, shapes[i], shapes, outline, preview, zoom, chrome, cover_seam);
             }
         }
 
         private static void paint_shape_in_frame(Cairo.Context cr, Shape shape, GLib.GenericArray<Shape> shapes,
-                                                 Color outline, bool preview, double zoom, bool chrome) {
+                                                 Color outline, bool preview, double zoom, bool chrome, bool cover_seam) {
             Shape? frame = clip_frame_for(shape, shapes);
             if (frame == null) {
-                paint_shape(cr, shape, outline, preview, zoom, chrome);
+                paint_shape(cr, shape, outline, preview, zoom, chrome, cover_seam);
                 return;
             }
             cr.save();
             clip_to_frame(cr, frame);
-            paint_shape(cr, shape, outline, preview, zoom, chrome);
+            paint_shape(cr, shape, outline, preview, zoom, chrome, cover_seam);
             cr.restore();
         }
 
@@ -200,7 +200,7 @@ namespace Nova {
         }
 
         public static void paint_shape(Cairo.Context cr, Shape shape, Color outline,
-                                       bool preview = false, double zoom = 1.0, bool chrome = true) {
+                                       bool preview = false, double zoom = 1.0, bool chrome = true, bool cover_seam = true) {
             if (!Geometry.is_drawable(shape)) return;
 
             double opacity = shape.opacity;
@@ -221,7 +221,7 @@ namespace Nova {
             if (shape.shape_type == ShapeType.GROUP) {
                 if (layer) cr.push_group();
                 for (uint i = 0; i < shape.children.length; i++) {
-                    paint_shape(cr, shape.children[i], outline, preview, zoom, chrome);
+                    paint_shape(cr, shape.children[i], outline, preview, zoom, chrome, cover_seam);
                 }
                 if (layer) {
                     cr.pop_group_to_source();
@@ -240,7 +240,7 @@ namespace Nova {
             } else if (shape.shape_type == ShapeType.IMAGE) {
                 paint_image(cr, shape, outline);
             } else {
-                paint_standard_shape(cr, shape, outline, zoom);
+                paint_standard_shape(cr, shape, outline, zoom, cover_seam);
             }
 
             if (layer) {
@@ -255,7 +255,7 @@ namespace Nova {
             cr.restore();
         }
 
-        private static void paint_standard_shape(Cairo.Context cr, Shape shape, Color outline, double zoom) {
+        private static void paint_standard_shape(Cairo.Context cr, Shape shape, Color outline, double zoom, bool cover_seam) {
             cr.new_path();
             if (!trace_shape(cr, shape)) return;
 
@@ -269,9 +269,9 @@ namespace Nova {
             bool has_custom_stroke = shape.has_stroke && shape.stroke_width > 0;
 
             if (!has_custom_stroke) {
-                fill_without_seam(cr, zoom);
+                fill_shape(cr, zoom, cover_seam);
             } else {
-                fill_without_seam(cr, zoom);
+                fill_shape(cr, zoom, cover_seam);
                 Color sc = shape.stroke_color;
                 double sw = shape.stroke_width;
 
@@ -316,9 +316,13 @@ namespace Nova {
             }
         }
 
-        // A shared edge is antialiased on both sides, so the canvas shows through as a hairline.
-        // Extend the fill by one screen pixel so touching shapes overlap instead of leaving a gap.
-        private static void fill_without_seam(Cairo.Context cr, double zoom) {
+        // On the canvas, extend the fill by one screen pixel so a shared edge does not show the background.
+        // Export keeps the true geometry, so corners that only meet stay on the pixel they were designed on.
+        private static void fill_shape(Cairo.Context cr, double zoom, bool cover_seam) {
+            if (!cover_seam) {
+                cr.fill();
+                return;
+            }
             cr.fill_preserve();
             double dx = 1.0;
             double dy = 0.0;

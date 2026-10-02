@@ -19,7 +19,7 @@ namespace Nova {
             cr.scale(factor, factor);
             cr.translate(-origin_x, -origin_y);
 
-            Render.paint_shapes(cr, shapes, Color.rgb(0.2, 0.2, 0.2), false, 1.0, false);
+            Render.paint_shapes(cr, shapes, Color.rgb(0.2, 0.2, 0.2), false, factor, false, false);
             surface.flush();
             return surface;
         }
@@ -60,7 +60,7 @@ namespace Nova {
             cr.scale(fit, fit);
             cr.translate(-bounds.x, -bounds.y);
 
-            Render.paint_shapes(cr, shapes, Color.rgb(0.2, 0.2, 0.2), false, 1.0, false);
+            Render.paint_shapes(cr, shapes, Color.rgb(0.2, 0.2, 0.2), false, fit, false, false);
             cr.restore();
         }
 
@@ -78,7 +78,33 @@ namespace Nova {
         private static void save_with_pixbuf(Cairo.ImageSurface surface, string path, string kind) throws GLib.Error {
             var pixbuf = pixbuf_from_surface(surface);
             string type_name = (kind == "jpeg") ? "jpeg" : "webp";
+            if (kind == "jpeg") {
+                pixbuf = without_alpha(pixbuf);
+            }
             pixbuf.save(path, type_name, "quality", "90", null);
+        }
+
+        private static Gdk.Pixbuf without_alpha(Gdk.Pixbuf src) {
+            if (!src.has_alpha) return src;
+            int width = src.get_width();
+            int height = src.get_height();
+            var rgb = new Gdk.Pixbuf(Gdk.Colorspace.RGB, false, 8, width, height);
+            int src_stride = src.get_rowstride();
+            int dst_stride = rgb.get_rowstride();
+            unowned uint8[] sp = src.get_pixels();
+            unowned uint8[] dp = rgb.get_pixels();
+            for (int y = 0; y < height; y++) {
+                int src_row = y * src_stride;
+                int dst_row = y * dst_stride;
+                for (int x = 0; x < width; x++) {
+                    int si = src_row + x * 4;
+                    int di = dst_row + x * 3;
+                    dp[di] = sp[si];
+                    dp[di + 1] = sp[si + 1];
+                    dp[di + 2] = sp[si + 2];
+                }
+            }
+            return rgb;
         }
 
         // Cairo image surfaces are native-endian and, for ARGB32, premultiplied.
