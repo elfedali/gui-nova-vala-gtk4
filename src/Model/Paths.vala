@@ -263,6 +263,7 @@ namespace Nova {
             path_shape.w = shape.w;
             path_shape.h = shape.h;
             path_shape.color = shape.color;
+            path_shape.fill_visible = shape.fill_visible;
             path_shape.has_stroke = shape.has_stroke;
             path_shape.stroke_color = shape.stroke_color;
             path_shape.stroke_width = shape.stroke_width;
@@ -743,6 +744,7 @@ namespace Nova {
             else if (operation == "exclusion") op_title = "Exclude";
             path_shape.name = op_title + " Path";
             path_shape.color = base_color;
+            path_shape.fill_visible = b.fill_visible;
             path_shape.stroke_color = base_stroke;
             path_shape.stroke_width = base_stroke_width;
             path_shape.has_stroke = base_has_stroke;

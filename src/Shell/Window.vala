@@ -57,10 +57,14 @@ namespace Nova {
         private Gtk.Scale opacity_scale;
         private Gtk.SpinButton opacity_spin;
 
-        private Gtk.Button fill_swatch;
+        private Gtk.MenuButton fill_swatch;
         private Gtk.Entry fill_hex_entry;
-        private Gtk.Button eyedropper_btn;
+        private Gtk.SpinButton fill_opacity_spin;
+        private Gtk.Button fill_visible_btn;
+        private Gtk.Box fill_row;
+        private Gtk.Popover fill_popover;
         private Gtk.Box doc_palette_box;
+        private Gtk.Box color_palette_box;
 
         private Gtk.SpinButton stroke_width_spin;
         private Gtk.Button stroke_swatch;
@@ -95,7 +99,7 @@ namespace Nova {
         private Gtk.DrawingArea export_preview_area;
         private Gtk.DrawingArea fill_chip;
         private Gtk.DrawingArea stroke_chip;
-        private Color fill_chip_color = Color.rgb(0.2, 0.6, 0.85);
+        private Color fill_chip_color = Color.default_fill();
         private Color stroke_chip_color = Color.rgb(0.2, 0.2, 0.2);
         private Gtk.Entry rename_entry;
         private Shape? rename_target = null;
@@ -1216,73 +1220,196 @@ namespace Nova {
 
         private void build_fill_section(Gtk.Box parent) {
             fill_section = new Gtk.Box(Gtk.Orientation.VERTICAL, 6);
+            fill_section.append(inspector_separator());
             fill_section.append(section_label("FILL"));
 
-            var row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
-            fill_swatch = new Gtk.Button();
+            fill_row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
+            fill_row.add_css_class("nova-fill-row");
+            fill_row.hexpand = true;
+            fill_row.valign = Gtk.Align.CENTER;
+
+            fill_swatch = new Gtk.MenuButton();
             fill_swatch.add_css_class("nova-color-chip");
             fill_swatch.tooltip_text = "Open Fill Color Picker";
+            fill_swatch.valign = Gtk.Align.CENTER;
+            fill_swatch.always_show_arrow = false;
             fill_chip = new Gtk.DrawingArea();
-            fill_chip.set_size_request(22, 22);
+            fill_chip.set_size_request(18, 18);
+            fill_chip.can_target = false;
             fill_chip.set_draw_func((area, cr, w, h) => paint_chip(cr, w, h, fill_chip_color));
             fill_swatch.child = fill_chip;
-            fill_swatch.clicked.connect(() => open_color_picker(false));
-            row.append(fill_swatch);
+            fill_row.append(fill_swatch);
 
             fill_hex_entry = new Gtk.Entry();
             fill_hex_entry.add_css_class("nova-hex-entry");
             fill_hex_entry.hexpand = true;
-            fill_hex_entry.activate.connect(() => {
-                Color? c = Color.from_hex(fill_hex_entry.text);
-                if (c != null) {
-                    for (uint i = 0; i < canvas.selected_shapes.length; i++) {
-                        document.set_color(canvas.selected_shapes[i], c, (i == 0));
-                    }
-                    update_inspector();
-                }
-            });
-            row.append(fill_hex_entry);
-
-            eyedropper_btn = Icons.create_lucide_button("pipette", "Desktop Eyedropper (Pick Fill Color)", 16);
-            eyedropper_btn.clicked.connect(() => {
-                Eyedropper.pick_screen_color((c) => {
-                    for (uint i = 0; i < canvas.selected_shapes.length; i++) {
-                        document.set_color(canvas.selected_shapes[i], c, (i == 0));
-                    }
-                    update_inspector();
+            fill_hex_entry.placeholder_text = "#DEDDDA";
+            fill_hex_entry.text = "#DEDDDA";
+            fill_hex_entry.tooltip_text = "Fill Color";
+            fill_hex_entry.activate.connect(apply_fill_hex);
+            var hex_focus = new Gtk.EventControllerFocus();
+            hex_focus.leave.connect(apply_fill_hex);
+            fill_hex_entry.add_controller(hex_focus);
+            var hex_click = new Gtk.EventControllerLegacy();
+            hex_click.event.connect((event) => {
+                var press = event as Gdk.ButtonEvent;
+                if (press == null || press.get_event_type() != Gdk.EventType.BUTTON_PRESS) return false;
+                if (press.get_button() != 1) return false;
+                open_fill_popover();
+                GLib.Idle.add(() => {
+                    fill_hex_entry.grab_focus();
+                    fill_hex_entry.select_region(0, -1);
+                    return GLib.Source.REMOVE;
                 });
+                return false;
             });
-            row.append(eyedropper_btn);
-            fill_section.append(row);
+            fill_hex_entry.add_controller(hex_click);
+            fill_row.append(fill_hex_entry);
 
-            // Palette Swatches
-            var pal_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
-            Color[] pal = {
-                Color.rgb(0.20, 0.60, 0.85), Color.rgb(0.90, 0.35, 0.30),
-                Color.rgb(0.95, 0.75, 0.25), Color.rgb(0.30, 0.70, 0.40),
-                Color.rgb(0.55, 0.40, 0.80), Color.rgb(0.20, 0.20, 0.22)
-            };
-            for (int i = 0; i < pal.length; i++) {
-                Color pc = pal[i];
-                var s = new Gtk.Button();
-                s.add_css_class("nova-swatch");
-                s.add_css_class("nova-swatch-%d".printf(i));
-                s.clicked.connect(() => {
-                    for (uint j = 0; j < canvas.selected_shapes.length; j++) {
-                        document.set_color(canvas.selected_shapes[j], pc, (j == 0));
-                    }
-                    update_inspector();
-                });
-                pal_box.append(s);
-            }
-            fill_section.append(pal_box);
+            fill_opacity_spin = new Gtk.SpinButton.with_range(0, 100, 1);
+            fill_opacity_spin.add_css_class("nova-fill-opacity");
+            fill_opacity_spin.tooltip_text = "Fill Opacity (%)";
+            fill_opacity_spin.value = 100;
+            fit_spin(fill_opacity_spin);
+            fill_opacity_spin.hexpand = false;
+            fill_opacity_spin.width_chars = 3;
+            fill_opacity_spin.valign = Gtk.Align.CENTER;
+            fill_opacity_spin.value_changed.connect(() => {
+                if (updating_inspector) return;
+                apply_fill_opacity(fill_opacity_spin.value / 100.0);
+            });
+            fill_row.append(fill_opacity_spin);
 
-            fill_section.append(section_label("DOCUMENT COLORS"));
+            fill_visible_btn = Icons.create_lucide_button("eye", "Hide Fill", 16, "flat nova-fill-vis");
+            fill_visible_btn.valign = Gtk.Align.CENTER;
+            fill_visible_btn.clicked.connect(toggle_fill_visible);
+            fill_row.append(fill_visible_btn);
 
-            doc_palette_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
-            doc_palette_box.hexpand = true;
-            fill_section.append(doc_palette_box);
+            fill_section.append(fill_row);
+            fill_section.append(inspector_separator());
             parent.append(fill_section);
+
+            build_fill_popover();
+        }
+
+        private Gtk.Separator inspector_separator() {
+            var sep = new Gtk.Separator(Gtk.Orientation.HORIZONTAL);
+            sep.add_css_class("nova-section-sep");
+            return sep;
+        }
+
+        private void build_fill_popover() {
+            fill_popover = new Gtk.Popover();
+            fill_popover.add_css_class("nova-fill-popover");
+            fill_popover.position = Gtk.PositionType.LEFT;
+            fill_popover.has_arrow = true;
+            fill_popover.autohide = true;
+            fill_popover.show.connect(update_doc_colors);
+
+            var box = new Gtk.Box(Gtk.Orientation.VERTICAL, 8);
+            box.margin_top = 8;
+            box.margin_bottom = 8;
+            box.margin_start = 10;
+            box.margin_end = 10;
+            box.width_request = 228;
+
+            box.append(section_label("Document Colors"));
+            doc_palette_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
+            doc_palette_box.add_css_class("nova-palette-row");
+            doc_palette_box.hexpand = true;
+            box.append(doc_palette_box);
+
+            var sep = new Gtk.Separator(Gtk.Orientation.HORIZONTAL);
+            sep.add_css_class("nova-section-sep");
+            box.append(sep);
+
+            box.append(section_label("Color Palette"));
+            color_palette_box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
+            color_palette_box.add_css_class("nova-palette-row");
+            color_palette_box.hexpand = true;
+            box.append(color_palette_box);
+            set_color_palette(new GLib.GenericArray<Color?>());
+
+            var tools = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
+            tools.margin_top = 4;
+            var dropper = Icons.create_lucide_button("pipette", "Desktop Eyedropper (Pick Fill Color)", 16);
+            dropper.clicked.connect(() => {
+                fill_popover.popdown();
+                Eyedropper.pick_screen_color((c) => apply_fill_to_selection(c));
+            });
+            tools.append(dropper);
+
+            var custom = new Gtk.Button.with_label("Custom Color");
+            custom.add_css_class("flat");
+            custom.hexpand = true;
+            custom.tooltip_text = "Open the system color picker";
+            custom.clicked.connect(() => {
+                fill_popover.popdown();
+                open_color_picker(false);
+            });
+            tools.append(custom);
+            box.append(tools);
+
+            fill_popover.child = box;
+            fill_swatch.popover = fill_popover;
+            update_doc_colors();
+        }
+
+        private void open_fill_popover() {
+            if (canvas.primary_selected == null) return;
+            fill_swatch.popup();
+        }
+
+        private void apply_fill_hex() {
+            if (updating_inspector) return;
+            string raw = fill_hex_entry.text.strip();
+            string cleaned = raw.has_prefix("#") ? raw.substring(1) : raw;
+            Color? parsed = Color.from_hex(raw);
+            if (parsed == null) return;
+            Color c = parsed;
+            if (cleaned.length == 3 || cleaned.length == 6) {
+                c.alpha = fill_opacity_spin.value / 100.0;
+            }
+            Shape? current = canvas.primary_selected;
+            if (current != null && canvas.selected_shapes.length == 1 && current.color.equals(c)) return;
+            apply_fill_to_selection(c);
+        }
+
+        private void apply_fill_opacity(double alpha) {
+            if (canvas.selected_shapes.length == 0) return;
+            for (uint i = 0; i < canvas.selected_shapes.length; i++) {
+                Shape shape = canvas.selected_shapes[i];
+                Color c = shape.color;
+                c.alpha = alpha;
+                document.set_color(shape, c, i == 0);
+            }
+            if (canvas.primary_selected != null) {
+                canvas.pen_color = canvas.primary_selected.color;
+            }
+            update_inspector();
+        }
+
+        private void apply_fill_to_selection(Color color) {
+            if (canvas.selected_shapes.length == 0) return;
+            for (uint i = 0; i < canvas.selected_shapes.length; i++) {
+                document.set_color(canvas.selected_shapes[i], color, i == 0);
+            }
+            canvas.pen_color = color;
+            update_inspector();
+        }
+
+        private void toggle_fill_visible() {
+            if (updating_inspector || canvas.primary_selected == null) return;
+            bool next = !canvas.primary_selected.fill_visible;
+            for (uint i = 0; i < canvas.selected_shapes.length; i++) {
+                document.set_fill_visible(canvas.selected_shapes[i], next, i == 0);
+            }
+            update_inspector();
+        }
+
+        // Fills the palette row from a caller-supplied list. Starts empty.
+        private void set_color_palette(GLib.GenericArray<Color?> colors) {
+            refill_swatch_box(color_palette_box, colors);
         }
 
         private void build_stroke_section(Gtk.Box parent) {
@@ -1747,9 +1874,11 @@ namespace Nova {
                 opacity_scale.set_value(s.opacity * 100.0);
                 opacity_spin.value = s.opacity * 100.0;
 
-                fill_hex_entry.text = s.color.to_hex();
+                fill_hex_entry.text = s.color.to_rgb_hex();
+                fill_opacity_spin.value = Math.round(s.color.alpha * 100.0);
                 fill_chip_color = s.color;
                 fill_chip.queue_draw();
+                sync_fill_visibility(s.fill_visible);
                 stroke_hex_entry.text = s.stroke_color.to_hex();
                 stroke_chip_color = s.stroke_color;
                 stroke_chip.queue_draw();
@@ -1837,35 +1966,63 @@ namespace Nova {
         }
 
         private void update_doc_colors() {
-            while (doc_palette_box.get_first_child() != null) {
-                doc_palette_box.remove(doc_palette_box.get_first_child());
-            }
             var colors = Color.extract_document_colors(document.shapes);
+            var shown = new GLib.GenericArray<Color?>();
+            for (uint i = 0; i < colors.length && i < 12; i++) {
+                shown.add(colors[i]);
+            }
+            refill_swatch_box(doc_palette_box, shown);
+        }
+
+        private void refill_swatch_box(Gtk.Box box, GLib.GenericArray<Color?> colors) {
+            while (box.get_first_child() != null) {
+                box.remove(box.get_first_child());
+            }
             if (colors.length == 0) {
-                var empty = new Gtk.Label("No document colors");
+                var empty = new Gtk.Label("None");
                 empty.add_css_class("dim-label");
-                doc_palette_box.append(empty);
+                empty.add_css_class("nova-palette-empty");
+                empty.xalign = 0.0f;
+                box.append(empty);
                 return;
             }
-            for (uint i = 0; i < colors.length && i < 12; i++) {
+            for (uint i = 0; i < colors.length; i++) {
                 Color c = colors[i];
                 var b = new Gtk.Button();
                 b.add_css_class("nova-swatch");
+                b.tooltip_text = c.to_rgb_hex();
                 var chip = new Gtk.DrawingArea();
                 chip.set_size_request(18, 18);
                 chip.set_draw_func((area, cr, w, h) => paint_chip(cr, w, h, c));
                 b.child = chip;
                 b.clicked.connect(() => {
-                    for (uint j = 0; j < canvas.selected_shapes.length; j++) {
-                        document.set_color(canvas.selected_shapes[j], c, (j == 0));
-                    }
-                    update_inspector();
+                    fill_popover.popdown();
+                    apply_fill_to_selection(c);
                 });
-                doc_palette_box.append(b);
+                box.append(b);
             }
         }
 
+        private void sync_fill_visibility(bool visible) {
+            Icons.update_button_icon(fill_visible_btn, visible ? "eye" : "eye-off", 16);
+            fill_visible_btn.tooltip_text = visible ? "Hide Fill" : "Show Fill";
+            if (visible) fill_row.remove_css_class("nova-fill-off");
+            else fill_row.add_css_class("nova-fill-off");
+        }
+
         private static void paint_chip(Cairo.Context cr, int w, int h, Color color) {
+            cr.set_source_rgb(0.86, 0.86, 0.88);
+            cr.rectangle(0, 0, w, h);
+            cr.fill();
+            cr.set_source_rgb(1.0, 1.0, 1.0);
+            int cell = 4;
+            for (int y = 0; y < h; y += cell) {
+                int offset = ((y / cell) % 2) * cell;
+                for (int x = offset; x < w; x += cell * 2) {
+                    cr.rectangle(x, y, cell, cell);
+                }
+            }
+            cr.fill();
             cr.set_source_rgba(color.red, color.green, color.blue, color.alpha);
             cr.rectangle(0, 0, w, h);
             cr.fill();
@@ -1990,6 +2147,7 @@ namespace Nova {
                 chip.set_size_request(10, 10);
                 chip.add_css_class("nova-swatch");
                 Color paint = shape.color;
+                if (!shape.fill_visible) paint.alpha = 0.0;
                 chip.set_draw_func((area, cr, w, h) => paint_chip(cr, w, h, paint));
                 box.append(chip);
             }

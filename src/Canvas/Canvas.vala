@@ -13,7 +13,7 @@ namespace Nova {
         public string tool {
             get { return _tool; }
         }
-        public Color pen_color { get; set; default = Color.rgb(0.2, 0.6, 0.85); }
+        public Color pen_color { get; set; default = Color.default_fill(); }
         public string canvas_bg { get; set; default = "theme"; }
 
         public GLib.GenericArray<Shape> selected_shapes { get; private set; }

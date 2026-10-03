@@ -90,11 +90,67 @@
     border: 1px solid rgba(0,0,0,0.4);
 }
 
-.nova-color-chip {
-    min-width: 24px;
-    min-height: 24px;
+menubutton.nova-color-chip {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 3px;
     border-radius: 6px;
-    border: 1px solid rgba(0,0,0,0.25);
+    border: 1px solid alpha(currentColor, 0.22);
+    background-color: alpha(currentColor, 0.04);
+}
+
+menubutton.nova-color-chip arrow {
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+    opacity: 0;
+}
+
+.nova-section-sep {
+    margin: 2px -12px;
+    min-height: 1px;
+    background-color: alpha(currentColor, 0.12);
+}
+
+.nova-fill-row {
+    min-height: 28px;
+}
+
+.nova-fill-opacity {
+    min-width: 64px;
+}
+
+button.flat.nova-fill-vis {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 4px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+}
+
+button.flat.nova-fill-vis:hover {
+    background-color: alpha(currentColor, 0.08);
+}
+
+.nova-fill-off .nova-color-chip,
+.nova-fill-off .nova-hex-entry,
+.nova-fill-off .nova-fill-opacity {
+    opacity: 0.4;
+}
+
+.nova-fill-popover contents {
+    padding: 4px;
+    border-radius: 10px;
+    background-color: @headerbar_bg_color;
+}
+
+.nova-palette-row {
+    min-height: 28px;
+}
+
+.nova-palette-empty {
+    font-size: 11px;
+    margin: 2px 0 4px;
 }
 
 .nova-bg-chip {
@@ -312,9 +368,3 @@ button.flat.nova-dock-arrow-btn:active {
     border-radius: 6px;
 }
 
-.nova-swatch-0 { background-color: rgb(51, 153, 216); }
-.nova-swatch-1 { background-color: rgb(229, 89, 76); }
-.nova-swatch-2 { background-color: rgb(242, 191, 63); }
-.nova-swatch-3 { background-color: rgb(76, 178, 102); }
-.nova-swatch-4 { background-color: rgb(140, 102, 204); }
-.nova-swatch-5 { background-color: rgb(51, 51, 56); }

@@ -293,19 +293,29 @@ namespace Nova {
             cr.new_path();
             if (!trace_shape(cr, shape)) return;
 
-            cr.set_source_rgb(shape.color.red, shape.color.green, shape.color.blue);
+            bool open_stroke = shape.shape_type == ShapeType.PATH && !shape.closed;
+            bool do_fill = shape.fill_visible && !open_stroke;
 
             if (shape.shape_type == ShapeType.FRAME) {
-                cr.fill();
+                if (do_fill) {
+                    set_fill_source(cr, shape);
+                    cr.fill();
+                }
                 return;
             }
 
             bool has_custom_stroke = shape.has_stroke && shape.stroke_width > 0;
 
             if (!has_custom_stroke) {
-                fill_shape(cr, zoom, cover_seam);
+                if (do_fill) {
+                    set_fill_source(cr, shape);
+                    fill_shape(cr, zoom, cover_seam);
+                }
             } else {
-                fill_shape(cr, zoom, cover_seam);
+                if (do_fill) {
+                    set_fill_source(cr, shape);
+                    fill_shape(cr, zoom, cover_seam);
+                }
                 Color sc = shape.stroke_color;
                 double sw = shape.stroke_width;
 
@@ -325,18 +335,36 @@ namespace Nova {
                     cr.restore();
                 } else if (shape.stroke_align == StrokeAlign.OUTSIDE) {
                     cr.save();
-                    cr.new_path();
-                    trace_shape(cr, shape);
-                    cr.set_source_rgb(sc.red, sc.green, sc.blue);
-                    cr.set_line_width(sw * 2.0);
-                    apply_stroke_caps_joins(cr, shape.stroke_cap, shape.stroke_join);
-                    apply_dash(cr, shape.stroke_dash, sw);
-                    cr.stroke();
+                    if (do_fill) {
+                        cr.new_path();
+                        trace_shape(cr, shape);
+                        cr.set_source_rgb(sc.red, sc.green, sc.blue);
+                        cr.set_line_width(sw * 2.0);
+                        apply_stroke_caps_joins(cr, shape.stroke_cap, shape.stroke_join);
+                        apply_dash(cr, shape.stroke_dash, sw);
+                        cr.stroke();
 
-                    cr.new_path();
-                    trace_shape(cr, shape);
-                    cr.set_source_rgb(shape.color.red, shape.color.green, shape.color.blue);
-                    cr.fill();
+                        cr.new_path();
+                        trace_shape(cr, shape);
+                        set_fill_source(cr, shape);
+                        cr.fill();
+                    } else {
+                        cr.push_group();
+                        cr.new_path();
+                        trace_shape(cr, shape);
+                        cr.set_source_rgb(sc.red, sc.green, sc.blue);
+                        cr.set_line_width(sw * 2.0);
+                        apply_stroke_caps_joins(cr, shape.stroke_cap, shape.stroke_join);
+                        apply_dash(cr, shape.stroke_dash, sw);
+                        cr.stroke();
+                        cr.set_operator(Cairo.Operator.DEST_OUT);
+                        cr.set_source_rgba(0, 0, 0, 1);
+                        cr.new_path();
+                        trace_shape(cr, shape);
+                        cr.fill();
+                        cr.pop_group_to_source();
+                        cr.paint();
+                    }
                     cr.restore();
                 } else { // CENTER
                     cr.new_path();
@@ -352,6 +380,10 @@ namespace Nova {
 
         // On the canvas, extend the fill by one screen pixel so a shared edge does not show the background.
         // Export keeps the true geometry, so corners that only meet stay on the pixel they were designed on.
+        private static void set_fill_source(Cairo.Context cr, Shape shape) {
+            cr.set_source_rgba(shape.color.red, shape.color.green, shape.color.blue, shape.color.alpha);
+        }
+
         private static void fill_shape(Cairo.Context cr, double zoom, bool cover_seam) {
             if (!cover_seam) {
                 cr.fill();
@@ -445,6 +477,7 @@ namespace Nova {
         }
 
         private static void paint_text(Cairo.Context cr, Shape shape) {
+            if (!shape.fill_visible) return;
             double x = shape.x;
             double y = shape.y;
             double width = shape.w;
@@ -458,7 +491,7 @@ namespace Nova {
 
             cr.select_font_face(shape.font_family, slant, weight);
             cr.set_font_size(font_size);
-            cr.set_source_rgb(shape.color.red, shape.color.green, shape.color.blue);
+            cr.set_source_rgba(shape.color.red, shape.color.green, shape.color.blue, shape.color.alpha);
 
             string[] raw_lines = text.split("\n");
             var lines = new GLib.GenericArray<string>();

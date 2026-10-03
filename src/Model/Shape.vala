@@ -12,7 +12,8 @@ namespace Nova {
         public double w { get; set; default = 100.0; }
         public double h { get; set; default = 100.0; }
 
-        public Color color { get; set; default = Color.rgb(0.2, 0.6, 0.85); }
+        public Color color { get; set; default = Color.default_fill(); }
+        public bool fill_visible { get; set; default = true; }
         public double opacity { get; set; default = 1.0; }
         public double rotation { get; set; default = 0.0; }
 
@@ -131,6 +132,7 @@ namespace Nova {
             copy.w = this.w;
             copy.h = this.h;
             copy.color = this.color;
+            copy.fill_visible = this.fill_visible;
             copy.opacity = this.opacity;
             copy.rotation = this.rotation;
             copy.has_stroke = this.has_stroke;

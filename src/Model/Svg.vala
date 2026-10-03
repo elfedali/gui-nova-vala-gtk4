@@ -316,7 +316,12 @@ namespace Nova {
         }
 
         private static string fill_attr(Shape shape) {
-            return " fill=\"%s\"".printf(shape.color.to_hex());
+            if (!shape.fill_visible) {
+                return " fill=\"none\"";
+            }
+            string paint = " fill=\"%s\"".printf(shape.color.to_rgb_hex());
+            if (shape.color.alpha >= 0.999) return paint;
+            return paint + " fill-opacity=\"%s\"".printf(num(shape.color.alpha));
         }
 
         private static string stroke_only_attrs(Shape shape, bool double_width, bool fallback_color) {
@@ -382,11 +387,15 @@ namespace Nova {
                 text_x = x + width;
             }
 
-            string fill = shape.color.to_hex();
+            string fill = shape.fill_visible ? shape.color.to_rgb_hex() : "none";
+            string fill_opacity = "";
+            if (shape.fill_visible && shape.color.alpha < 0.999) {
+                fill_opacity = " fill-opacity=\"%s\"".printf(num(shape.color.alpha));
+            }
             string[] lines = shape.text.split("\n");
 
-            string opening = "%s<text%s x=\"%s\" y=\"%s\" fill=\"%s\" font-family=\"%s\" font-size=\"%s\" font-weight=\"%s\" font-style=\"%s\" text-anchor=\"%s\"%s>".printf(
-                pad, id_attr, num(text_x), num(y + size), fill, family, num(size), weight, style, anchor, opacity);
+            string opening = "%s<text%s x=\"%s\" y=\"%s\" fill=\"%s\" font-family=\"%s\" font-size=\"%s\" font-weight=\"%s\" font-style=\"%s\" text-anchor=\"%s\"%s%s>".printf(
+                pad, id_attr, num(text_x), num(y + size), fill, family, num(size), weight, style, anchor, fill_opacity, opacity);
 
             if (lines.length == 1) {
                 sb.append("%s%s</text>\n".printf(opening, GLib.Markup.escape_text(lines[0])));

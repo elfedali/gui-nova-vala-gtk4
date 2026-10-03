@@ -19,6 +19,11 @@ namespace Nova {
             return Color(r, g, b, 1.0);
         }
 
+        // Neutral fill used for newly created shapes (#DEDDDA at 100% opacity).
+        public static Color default_fill() {
+            return Color(222.0 / 255.0, 221.0 / 255.0, 218.0 / 255.0, 1.0);
+        }
+
         public static Color rgba(double r, double g, double b, double a) {
             return Color(r, g, b, a);
         }
@@ -30,16 +35,19 @@ namespace Nova {
                    Math.fabs(alpha - other.alpha) <= epsilon;
         }
 
-        public string to_hex(bool include_alpha = false) {
+        public string to_rgb_hex() {
             int r = (int) Math.round(red * 255.0);
             int g = (int) Math.round(green * 255.0);
             int b = (int) Math.round(blue * 255.0);
-            int a = (int) Math.round(alpha * 255.0);
-
-            if (include_alpha || a < 255) {
-                return "#%02X%02X%02X%02X".printf(r, g, b, a);
-            }
             return "#%02X%02X%02X".printf(r, g, b);
+        }
+
+        public string to_hex(bool include_alpha = false) {
+            int a = (int) Math.round(alpha * 255.0);
+            if (include_alpha || a < 255) {
+                return "%s%02X".printf(to_rgb_hex(), a);
+            }
+            return to_rgb_hex();
         }
 
         private static inline int hex_val(char c) {

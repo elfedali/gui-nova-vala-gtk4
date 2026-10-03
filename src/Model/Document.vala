@@ -276,6 +276,12 @@ namespace Nova {
             changed();
         }
 
+        public void set_fill_visible(Shape shape, bool visible, bool record_undo = true) {
+            if (record_undo) checkpoint();
+            shape.fill_visible = visible;
+            changed();
+        }
+
         public void set_opacity(Shape shape, double opacity, bool record_undo = true) {
             if (record_undo) checkpoint();
             shape.opacity = Math.fmax(0.0, Math.fmin(1.0, opacity));
