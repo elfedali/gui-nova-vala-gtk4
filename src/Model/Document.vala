@@ -2,6 +2,12 @@
 
 namespace Nova {
 
+    public enum LayerPlace {
+        BEFORE,
+        AFTER,
+        INTO
+    }
+
     public class Document : GLib.Object {
         public GLib.GenericArray<Shape> shapes { get; private set; }
         public UndoStack undo_stack { get; private set; }
@@ -970,10 +976,72 @@ namespace Nova {
         }
 
         public Shape? find_shape_by_id(string id) {
+            return find_in_list(shapes, id);
+        }
+
+        // Back-to-front children of a frame or group. The layers panel shows the reverse.
+        public GLib.GenericArray<Shape> stacked_children(Shape shape) {
+            var list = new GLib.GenericArray<Shape>();
+            if (shape.shape_type == ShapeType.GROUP) {
+                for (uint i = 0; i < shape.children.length; i++) list.add(shape.children[i]);
+                return list;
+            }
+            if (shape.shape_type != ShapeType.FRAME) return list;
             for (uint i = 0; i < shapes.length; i++) {
-                if (shapes[i].id == id) return shapes[i];
+                if (shapes[i].frame_id == shape.id) list.add(shapes[i]);
+            }
+            return list;
+        }
+
+        // Back-to-front top-level rows: frames and shapes that are not inside a frame or group.
+        public GLib.GenericArray<Shape> root_layers() {
+            var list = new GLib.GenericArray<Shape>();
+            for (uint i = 0; i < shapes.length; i++) {
+                if (layer_parent(shapes[i]) == null) list.add(shapes[i]);
+            }
+            return list;
+        }
+
+        public Shape? layer_parent(Shape shape) {
+            Shape? group = find_group_parent(shape);
+            if (group != null) return group;
+            if (shape.frame_id != null) {
+                Shape? frame = find_in_list(shapes, shape.frame_id);
+                if (frame != null && frame.shape_type == ShapeType.FRAME) return frame;
             }
             return null;
+        }
+
+        public bool layer_contains(Shape parent, Shape needle) {
+            if (parent == needle) return true;
+            var kids = stacked_children(parent);
+            for (uint i = 0; i < kids.length; i++) {
+                if (kids[i] == needle || layer_contains(kids[i], needle)) return true;
+            }
+            return false;
+        }
+
+        public bool move_layer(Shape dragged, Shape target, LayerPlace place) {
+            if (!move_layer_allowed(dragged, target, place)) return false;
+            Shape? dest = place == LayerPlace.INTO ? target : layer_parent(target);
+            var current = siblings_of(dest);
+            int old_index = index_in(current, dragged);
+            var sibs = copy_without(current, dragged);
+            int insert_at = layer_insert_at(sibs, target, place);
+            if (layer_parent(dragged) == dest && old_index == insert_at) return false;
+
+            checkpoint();
+            Shape? old_group = find_group_parent(dragged);
+            if (old_group != null && old_group != dest) {
+                remove_child(old_group, dragged);
+                refit_group(old_group);
+            }
+            if (insert_at >= (int) sibs.length) sibs.add(dragged);
+            else sibs.insert(insert_at, dragged);
+            write_siblings(dest, sibs);
+            if (dest != null && dest.shape_type == ShapeType.GROUP) refit_group(dest);
+            changed();
+            return true;
         }
 
         public Shape? find_parent_frame(Shape shape) {
@@ -997,6 +1065,136 @@ namespace Nova {
                 unit.add(children[i]);
             }
             return unit;
+        }
+
+        public bool move_layer_allowed(Shape dragged, Shape target, LayerPlace place) {
+            if (dragged == target) return false;
+            if (layer_contains(dragged, target)) return false;
+            if (place == LayerPlace.INTO) {
+                if (dragged.shape_type == ShapeType.FRAME) return false;
+                if (target.shape_type != ShapeType.GROUP && target.shape_type != ShapeType.FRAME) return false;
+                return true;
+            }
+            Shape? dest = layer_parent(target);
+            if (dragged.shape_type == ShapeType.FRAME && dest != null) return false;
+            return index_in(siblings_of(dest), target) >= 0;
+        }
+
+        private GLib.GenericArray<Shape> siblings_of(Shape? parent) {
+            if (parent == null) return root_layers();
+            return stacked_children(parent);
+        }
+
+        private static int layer_insert_at(GLib.GenericArray<Shape> sibs, Shape target, LayerPlace place) {
+            if (place == LayerPlace.INTO) return (int) sibs.length;
+            int index = index_in(sibs, target);
+            if (place == LayerPlace.BEFORE) return index + 1;
+            return index;
+        }
+
+        private static int index_in(GLib.GenericArray<Shape> list, Shape shape) {
+            for (uint i = 0; i < list.length; i++) {
+                if (list[i] == shape) return (int) i;
+            }
+            return -1;
+        }
+
+        private static GLib.GenericArray<Shape> copy_without(GLib.GenericArray<Shape> list, Shape skip) {
+            var copy = new GLib.GenericArray<Shape>();
+            for (uint i = 0; i < list.length; i++) {
+                if (list[i] != skip) copy.add(list[i]);
+            }
+            return copy;
+        }
+
+        private Shape? find_group_parent(Shape shape) {
+            return find_group_parent_in(shapes, shape);
+        }
+
+        private Shape? find_group_parent_in(GLib.GenericArray<Shape> list, Shape shape) {
+            for (uint i = 0; i < list.length; i++) {
+                if (list[i].shape_type != ShapeType.GROUP) continue;
+                for (uint c = 0; c < list[i].children.length; c++) {
+                    if (list[i].children[c] == shape) return list[i];
+                }
+                Shape? nested = find_group_parent_in(list[i].children, shape);
+                if (nested != null) return nested;
+            }
+            return null;
+        }
+
+        private static Shape? find_in_list(GLib.GenericArray<Shape> list, string id) {
+            for (uint i = 0; i < list.length; i++) {
+                if (list[i].id == id) return list[i];
+                if (list[i].children.length > 0) {
+                    Shape? nested = find_in_list(list[i].children, id);
+                    if (nested != null) return nested;
+                }
+            }
+            return null;
+        }
+
+        private void remove_child(Shape group, Shape shape) {
+            for (uint i = 0; i < group.children.length; i++) {
+                if (group.children[i] == shape) {
+                    group.children.remove_index(i);
+                    return;
+                }
+            }
+        }
+
+        private void refit_group(Shape group) {
+            if (group.shape_type != ShapeType.GROUP || group.children.length == 0) return;
+            Rect bounds = Geometry.bounding_box(group.children);
+            group.x = bounds.x;
+            group.y = bounds.y;
+            group.w = bounds.width;
+            group.h = bounds.height;
+            Shape? parent = find_group_parent(group);
+            if (parent != null) refit_group(parent);
+        }
+
+        private void write_siblings(Shape? parent, GLib.GenericArray<Shape> ordered) {
+            if (parent != null && parent.shape_type == ShapeType.GROUP) {
+                for (uint i = 0; i < ordered.length; i++) {
+                    int idx = index_of(ordered[i]);
+                    if (idx >= 0) shapes.remove_index((uint) idx);
+                    ordered[i].frame_id = parent.frame_id;
+                }
+                parent.children.remove_range(0, parent.children.length);
+                for (uint i = 0; i < ordered.length; i++) parent.children.add(ordered[i]);
+                return;
+            }
+            if (parent != null && parent.shape_type == ShapeType.FRAME) {
+                remove_shapes_from_document(ordered);
+                int frame_index_now = index_of(parent);
+                for (uint i = 0; i < ordered.length; i++) {
+                    ordered[i].frame_id = parent.id;
+                    shapes.insert(frame_index_now + 1 + (int) i, ordered[i]);
+                }
+                return;
+            }
+            for (uint i = 0; i < ordered.length; i++) {
+                if (ordered[i].shape_type != ShapeType.FRAME) ordered[i].frame_id = null;
+            }
+            var next = new GLib.GenericArray<Shape>();
+            for (uint i = 0; i < ordered.length; i++) {
+                next.add(ordered[i]);
+                if (ordered[i].shape_type != ShapeType.FRAME) continue;
+                var kids = stacked_children(ordered[i]);
+                for (uint k = 0; k < kids.length; k++) {
+                    if (index_in(ordered, kids[k]) >= 0) continue;
+                    next.add(kids[k]);
+                }
+            }
+            shapes.remove_range(0, shapes.length);
+            for (uint i = 0; i < next.length; i++) shapes.add(next[i]);
+        }
+
+        private void remove_shapes_from_document(GLib.GenericArray<Shape> list) {
+            for (int i = (int) shapes.length - 1; i >= 0; i--) {
+                if (index_in(list, shapes[i]) >= 0) shapes.remove_index((uint) i);
+            }
         }
     }
 }

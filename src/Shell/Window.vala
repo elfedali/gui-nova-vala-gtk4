@@ -105,6 +105,9 @@ namespace Nova {
         private Shape? rename_target = null;
         private bool rename_open = false;
         private bool updating_layers = false;
+        private string? layer_drag_id = null;
+        private Gtk.ListBoxRow? layer_drop_row = null;
+        private LayerPlace layer_drop_place = LayerPlace.BEFORE;
         private Gtk.Entry? layer_rename_entry = null;
         private Shape? layer_rename_shape = null;
         private bool layer_rename_done = false;
@@ -430,6 +433,13 @@ namespace Nova {
             layer_search.search_changed.connect(() => refresh_layers());
             left_sidebar.append(layer_search);
 
+            var hint = new Gtk.Label("Drag a row to reorder. Drop it on a folder to move it inside.");
+            hint.add_css_class("dim-label");
+            hint.add_css_class("nova-layer-hint");
+            hint.xalign = 0.0f;
+            hint.wrap = true;
+            left_sidebar.append(hint);
+
             // Layer list in scrolled window
             var scroll = new Gtk.ScrolledWindow();
             scroll.hexpand = true;
@@ -448,10 +458,18 @@ namespace Nova {
             });
             layer_list.row_activated.connect((row) => {
                 unowned Shape? s = row.get_data<Shape>("shape");
-                if (s != null && s.shape_type == ShapeType.FRAME) {
-                    begin_layer_rename(row, s);
-                }
+                if (s != null) begin_layer_rename(row, s);
             });
+            var drop = new Gtk.DropTarget(typeof(string), Gdk.DragAction.MOVE);
+            drop.propagation_phase = Gtk.PropagationPhase.CAPTURE;
+            drop.motion.connect((x, y) => {
+                return update_layer_drop(y) ? Gdk.DragAction.MOVE : (Gdk.DragAction) 0;
+            });
+            drop.leave.connect(() => clear_layer_drop());
+            drop.drop.connect((value, x, y) => {
+                return commit_layer_drop();
+            });
+            layer_list.add_controller(drop);
             scroll.set_child(layer_list);
             left_sidebar.append(scroll);
         }
@@ -2059,46 +2077,19 @@ namespace Nova {
 
         private void refresh_layers() {
             updating_layers = true;
+            clear_layer_drop();
             while (layer_list.get_first_child() != null) {
                 layer_list.remove(layer_list.get_first_child());
             }
 
-            layer_count_label.label = "%u".printf(document.shapes.length);
             string filter_text = layer_search.text.down().strip();
             Gtk.ListBoxRow? selected_row = null;
-
-            if (filter_text.length > 0) {
-                for (int i = (int) document.shapes.length - 1; i >= 0; i--) {
-                    unowned Shape s = document.shapes[i];
-                    if (!s.name.down().contains(filter_text)) continue;
-                    var row = make_layer_row(s, false, false);
-                    if (canvas.primary_selected == s) selected_row = row;
-                    layer_list.append(row);
-                }
-            } else {
-                var child_ids = new GLib.HashTable<string, bool>(GLib.str_hash, GLib.str_equal);
-                for (uint i = 0; i < document.shapes.length; i++) {
-                    if (document.shapes[i].shape_type != ShapeType.FRAME) continue;
-                    var children = document.get_frame_children(document.shapes[i]);
-                    for (uint c = 0; c < children.length; c++) {
-                        child_ids.insert(children[c].id, true);
-                    }
-                }
-                for (int i = (int) document.shapes.length - 1; i >= 0; i--) {
-                    unowned Shape s = document.shapes[i];
-                    if (s.shape_type != ShapeType.FRAME && child_ids.contains(s.id)) continue;
-                    bool is_frame = s.shape_type == ShapeType.FRAME;
-                    var row = make_layer_row(s, is_frame, false);
-                    if (canvas.primary_selected == s) selected_row = row;
-                    layer_list.append(row);
-                    if (!is_frame || collapsed_frames.contains(s.id)) continue;
-                    var children = document.get_frame_children(s);
-                    for (int c = (int) children.length - 1; c >= 0; c--) {
-                        var child_row = make_layer_row(children[c], false, true);
-                        if (canvas.primary_selected == children[c]) selected_row = child_row;
-                        layer_list.append(child_row);
-                    }
-                }
+            var roots = document.root_layers();
+            int count = 0;
+            for (uint i = 0; i < roots.length; i++) count += layer_tree_count(roots[i]);
+            layer_count_label.label = "%d".printf(count);
+            for (int i = (int) roots.length - 1; i >= 0; i--) {
+                append_layer_row(roots[i], 0, filter_text, ref selected_row);
             }
 
             if (layer_list.get_first_child() == null) {
@@ -2117,32 +2108,75 @@ namespace Nova {
             updating_layers = false;
         }
 
-        private Gtk.ListBoxRow make_layer_row(Shape shape, bool is_frame, bool nested) {
+        private int layer_tree_count(Shape shape) {
+            int count = 1;
+            var kids = document.stacked_children(shape);
+            for (uint i = 0; i < kids.length; i++) count += layer_tree_count(kids[i]);
+            return count;
+        }
+
+        private void append_layer_row(Shape shape, int depth, string filter, ref Gtk.ListBoxRow? selected_row) {
+            if (filter.length > 0 && !layer_branch_matches(shape, filter)) return;
+            var kids = document.stacked_children(shape);
+            bool container = shape.shape_type == ShapeType.FRAME || shape.shape_type == ShapeType.GROUP;
+            bool has_kids = kids.length > 0;
+            bool open = has_kids && (filter.length > 0 || !collapsed_frames.contains(shape.id));
+            var row = make_layer_row(shape, depth, container, has_kids, open);
+            if (canvas.primary_selected == shape) selected_row = row;
+            layer_list.append(row);
+            if (!open) return;
+            for (int i = (int) kids.length - 1; i >= 0; i--) {
+                append_layer_row(kids[i], depth + 1, filter, ref selected_row);
+            }
+        }
+
+        private bool layer_branch_matches(Shape shape, string filter) {
+            if (shape.name.down().contains(filter)) return true;
+            var kids = document.stacked_children(shape);
+            for (uint i = 0; i < kids.length; i++) {
+                if (layer_branch_matches(kids[i], filter)) return true;
+            }
+            return false;
+        }
+
+        private Gtk.ListBoxRow make_layer_row(Shape shape, int depth, bool container, bool has_kids, bool open) {
             var row = new Gtk.ListBoxRow();
+            row.add_css_class("nova-layer-row");
             row.set_data("shape", shape);
-            if (is_frame) row.add_css_class("nova-frame-row");
-            if (nested) row.add_css_class("nova-tree-child-row");
+            if (shape.shape_type == ShapeType.FRAME) row.add_css_class("nova-frame-row");
+            if (shape.shape_type == ShapeType.GROUP) row.add_css_class("nova-layer-folder");
+            if (depth > 0) row.add_css_class("nova-tree-child-row");
 
-            var box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 6);
-            box.margin_start = nested ? 22 : 6;
-            box.margin_end = 6;
-            box.margin_top = 4;
-            box.margin_bottom = 4;
+            var box = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 4);
+            box.margin_start = 4 + depth * 14;
+            box.margin_end = 4;
+            box.margin_top = 2;
+            box.margin_bottom = 2;
 
-            if (is_frame) {
-                var children = document.get_frame_children(shape);
-                if (children.length > 0) {
-                    bool collapsed = collapsed_frames.contains(shape.id);
-                    string fid = shape.id;
-                    var exp = Icons.create_lucide_button(collapsed ? "chevron-right" : "chevron-down", "Collapse/Expand Artboard", 14, "flat");
-                    exp.clicked.connect(() => {
-                        if (collapsed_frames.contains(fid)) collapsed_frames.remove(fid);
-                        else collapsed_frames.insert(fid, true);
-                        refresh_layers();
-                    });
-                    box.append(exp);
-                }
+            var grip = new Gtk.Label("⠿");
+            grip.add_css_class("nova-layer-grip");
+            grip.tooltip_text = "Drag to reorder";
+            grip.valign = Gtk.Align.CENTER;
+            box.append(grip);
+
+            if (has_kids) {
+                string sid = shape.id;
+                string tip = shape.shape_type == ShapeType.GROUP ? "Collapse folder" : "Collapse artboard";
+                if (!open) tip = shape.shape_type == ShapeType.GROUP ? "Expand folder" : "Expand artboard";
+                var exp = Icons.create_lucide_button(open ? "chevron-down" : "chevron-right", tip, 14, "flat nova-tree-expander");
+                exp.clicked.connect(() => {
+                    if (collapsed_frames.contains(sid)) collapsed_frames.remove(sid);
+                    else collapsed_frames.insert(sid, true);
+                    refresh_layers();
+                });
+                box.append(exp);
             } else {
+                var spacer = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 0);
+                spacer.set_size_request(16, 16);
+                box.append(spacer);
+            }
+
+            if (!container) {
                 var chip = new Gtk.DrawingArea();
                 chip.set_size_request(10, 10);
                 chip.add_css_class("nova-swatch");
@@ -2159,10 +2193,15 @@ namespace Nova {
             name.xalign = 0.0f;
             name.hexpand = true;
             name.ellipsize = Pango.EllipsizeMode.END;
-            name.max_width_chars = 16;
             name.tooltip_text = shape.name;
             if (!shape.visible) name.add_css_class("dim-label");
             box.append(name);
+
+            if (has_kids) {
+                var count_lbl = new Gtk.Label("%u".printf(document.stacked_children(shape).length));
+                count_lbl.add_css_class("nova-layer-count");
+                box.append(count_lbl);
+            }
 
             var lock_btn = Icons.create_lucide_button(shape.locked ? "lock" : "unlock", shape.locked ? "Unlock" : "Lock", 14, "nova-layer-vis-btn");
             lock_btn.clicked.connect(() => {
@@ -2171,6 +2210,7 @@ namespace Nova {
             });
             box.append(lock_btn);
 
+            bool is_frame = shape.shape_type == ShapeType.FRAME;
             string vis_tip = shape.visible ? (is_frame ? "Hide Artboard" : "Hide Layer") : (is_frame ? "Show Artboard" : "Show Layer");
             var vis_btn = Icons.create_lucide_button(shape.visible ? "eye" : "eye-off", vis_tip, 14, "nova-layer-vis-btn");
             vis_btn.clicked.connect(() => {
@@ -2179,8 +2219,98 @@ namespace Nova {
             });
             box.append(vis_btn);
 
+            var drag = new Gtk.DragSource();
+            drag.actions = Gdk.DragAction.MOVE;
+            string drag_id = shape.id;
+            drag.prepare.connect((x, y) => {
+                layer_drag_id = drag_id;
+                var val = Value(typeof(string));
+                val.set_string(drag_id);
+                return new Gdk.ContentProvider.for_value(val);
+            });
+            drag.drag_begin.connect((gdk_drag) => {
+                drag.set_icon(new Gtk.WidgetPaintable(row), 8, 8);
+            });
+            drag.drag_end.connect((gdk_drag, delete_data) => {
+                string ended = drag_id;
+                GLib.Idle.add(() => {
+                    if (layer_drag_id == ended) {
+                        layer_drag_id = null;
+                        clear_layer_drop();
+                    }
+                    return GLib.Source.REMOVE;
+                });
+            });
+            row.add_controller(drag);
+
             row.child = box;
             return row;
+        }
+
+        private bool update_layer_drop(double y) {
+            clear_layer_drop();
+            if (layer_drag_id == null) return false;
+            Gtk.ListBoxRow? row = layer_list.get_row_at_y((int) y);
+            if (row == null) return false;
+            unowned Shape? target = row.get_data<Shape>("shape");
+            Shape? dragged = document.find_shape_by_id(layer_drag_id);
+            if (target == null || dragged == null) return false;
+
+            Graphene.Point src = Graphene.Point();
+            src.x = 0;
+            src.y = (float) y;
+            Graphene.Point local;
+            if (!layer_list.compute_point(row, src, out local)) return false;
+            int height = row.get_height();
+            if (height < 1) height = 1;
+
+            bool container = target.shape_type == ShapeType.GROUP || target.shape_type == ShapeType.FRAME;
+            bool can_into = container && dragged.shape_type != ShapeType.FRAME && dragged != target
+                && !document.layer_contains(dragged, target);
+            LayerPlace place;
+            if (can_into && local.y > height * 0.28 && local.y < height * 0.72) {
+                place = LayerPlace.INTO;
+            } else if (local.y < height / 2.0) {
+                place = LayerPlace.BEFORE;
+            } else {
+                place = LayerPlace.AFTER;
+            }
+            if (!document.move_layer_allowed(dragged, target, place)) return false;
+
+            layer_drop_row = row;
+            layer_drop_place = place;
+            if (place == LayerPlace.BEFORE) row.add_css_class("drop-before");
+            else if (place == LayerPlace.AFTER) row.add_css_class("drop-after");
+            else row.add_css_class("drop-into");
+            return true;
+        }
+
+        private bool commit_layer_drop() {
+            if (layer_drag_id == null || layer_drop_row == null) return false;
+            Shape? dragged = document.find_shape_by_id(layer_drag_id);
+            unowned Shape? target = layer_drop_row.get_data<Shape>("shape");
+            if (dragged == null || target == null) return false;
+            LayerPlace place = layer_drop_place;
+            string target_id = target.id;
+            bool moved = document.move_layer(dragged, target, place);
+            clear_layer_drop();
+            if (moved && place == LayerPlace.INTO) collapsed_frames.remove(target_id);
+            refresh_layers();
+            canvas.queue_draw();
+            if (moved) {
+                Shape? again = document.find_shape_by_id(dragged.id);
+                if (again != null) canvas.select_shape(again);
+            }
+            return moved;
+        }
+
+        private void clear_layer_drop() {
+            layer_drop_row = null;
+            for (Gtk.Widget? child = layer_list.get_first_child(); child != null; child = child.get_next_sibling()) {
+                child.remove_css_class("drop-before");
+                child.remove_css_class("drop-after");
+                child.remove_css_class("drop-into");
+            }
         }
 
         private static string layer_glyph(Shape shape) {
@@ -2291,9 +2421,11 @@ namespace Nova {
 
                 bool alt_key = keyval == Gdk.Key.Alt_L || keyval == Gdk.Key.Alt_R;
                 bool shift_key = keyval == Gdk.Key.Shift_L || keyval == Gdk.Key.Shift_R;
+                bool ctrl_key = keyval == Gdk.Key.Control_L || keyval == Gdk.Key.Control_R;
                 canvas.alt_held = alt || alt_key;
                 canvas.shift_held = shift || shift_key;
-                if (alt_key || shift_key) {
+                canvas.ctrl_held = ctrl || ctrl_key;
+                if (alt_key || shift_key || ctrl_key) {
                     canvas.refresh_modifier_drag();
                 }
                 if (alt_key) return true;
@@ -2424,6 +2556,17 @@ namespace Nova {
                     if (shift && (keyval == Gdk.Key.@2 || keyval == Gdk.Key.KP_2)) {
                         canvas.zoom_to_selection(); return true;
                     }
+                    if (canvas.pen_is_drawing()) {
+                        if (keyval == Gdk.Key.Escape) {
+                            canvas.cancel_pen_path(); return true;
+                        }
+                        if (keyval == Gdk.Key.Return || keyval == Gdk.Key.KP_Enter) {
+                            canvas.finish_pen_path(); return true;
+                        }
+                        if (keyval == Gdk.Key.BackSpace || keyval == Gdk.Key.Delete) {
+                            canvas.undo_pen_point(); return true;
+                        }
+                    }
                     if (keyval == Gdk.Key.Delete || keyval == Gdk.Key.BackSpace) {
                         canvas.delete_selected(); return true;
                     }
@@ -2432,7 +2575,7 @@ namespace Nova {
                         else canvas.clear_selection();
                         return true;
                     }
-                    if (keyval == Gdk.Key.Return) {
+                    if (keyval == Gdk.Key.Return || keyval == Gdk.Key.KP_Enter) {
                         if (canvas.is_in_node_edit_mode()) canvas.exit_node_edit_mode();
                         else if (canvas.primary_selected != null) canvas.enter_node_edit_mode();
                         return true;
@@ -2460,9 +2603,11 @@ namespace Nova {
             key_ctrl.key_released.connect((keyval, keycode, state) => {
                 bool alt_key = keyval == Gdk.Key.Alt_L || keyval == Gdk.Key.Alt_R;
                 bool shift_key = keyval == Gdk.Key.Shift_L || keyval == Gdk.Key.Shift_R;
+                bool ctrl_key = keyval == Gdk.Key.Control_L || keyval == Gdk.Key.Control_R;
                 canvas.alt_held = !alt_key && (state & Gdk.ModifierType.ALT_MASK) != 0;
                 canvas.shift_held = !shift_key && (state & Gdk.ModifierType.SHIFT_MASK) != 0;
-                if (alt_key || shift_key) {
+                canvas.ctrl_held = !ctrl_key && (state & Gdk.ModifierType.CONTROL_MASK) != 0;
+                if (alt_key || shift_key || ctrl_key) {
                     canvas.refresh_modifier_drag();
                 }
                 if (keyval == Gdk.Key.space || keyval == Gdk.Key.KP_Space) {
@@ -2475,6 +2620,7 @@ namespace Nova {
                 canvas.hold_space(false);
                 canvas.alt_held = false;
                 canvas.shift_held = false;
+                canvas.ctrl_held = false;
             });
             ((Gtk.Widget) this).add_controller(key_ctrl);
             ((Gtk.Widget) this).add_controller(focus);

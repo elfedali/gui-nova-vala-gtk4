@@ -59,6 +59,7 @@ namespace Nova {
         private Shape? hover_shape = null;
         public bool alt_held { get; set; default = false; }
         public bool shift_held { get; set; default = false; }
+        public bool ctrl_held { get; set; default = false; }
         public bool space_held { get; set; default = false; }
         public Color accent_color = Color.rgb(0.208, 0.518, 0.894);
 
@@ -70,6 +71,8 @@ namespace Nova {
         // Pen tool draft
         public Shape? pen_draft_path { get; private set; default = null; }
         private Point? pen_hover_pt = null;
+        // Only the node placed on this press may get a handle drag.
+        private bool pen_placing = false;
 
         // True once this press crosses the drag threshold, so a click can still place a shape.
         private bool press_became_drag = false;
@@ -81,6 +84,7 @@ namespace Nova {
         private Gtk.EventControllerScroll scroll_ctrl;
         private Gtk.GestureZoom zoom_gesture;
         private Gtk.GestureClick right_click_gesture;
+        private Gtk.Popover? context_popover = null;
 
         // Signals
         public signal void selection_changed();
@@ -315,7 +319,12 @@ namespace Nova {
             }
         }
 
-        public void commit_pen_path(bool closed = false, bool return_to_select = true) {
+        public bool pen_is_drawing() {
+            return pen_draft_path != null;
+        }
+
+        public void commit_pen_path(bool closed = false, bool return_to_select = false) {
+            pen_placing = false;
             if (pen_draft_path == null || pen_draft_path.nodes.length < 2) {
                 pen_draft_path = null;
                 pen_hover_pt = null;
@@ -329,10 +338,41 @@ namespace Nova {
             Shape added = document.add_shape(pen_draft_path, true);
             pen_draft_path = null;
             pen_hover_pt = null;
-            select_shape(added);
             if (return_to_select) {
+                select_shape(added);
                 set_tool("select");
+            } else {
+                clear_selection();
             }
+            queue_draw();
+        }
+
+        public void cancel_pen_path() {
+            pen_draft_path = null;
+            pen_hover_pt = null;
+            pen_placing = false;
+            if (drag_mode == "pen_drag") drag_mode = "none";
+            queue_draw();
+        }
+
+        public void finish_pen_path() {
+            if (pen_draft_path == null) return;
+            if (pen_draft_path.nodes.length >= 2) {
+                commit_pen_path(false, false);
+            } else {
+                cancel_pen_path();
+            }
+        }
+
+        public void undo_pen_point() {
+            if (pen_draft_path == null) return;
+            pen_placing = false;
+            if (pen_draft_path.nodes.length <= 1) {
+                cancel_pen_path();
+                return;
+            }
+            pen_draft_path.nodes.remove_index(pen_draft_path.nodes.length - 1);
+            Paths.path_recalculate_bounds(pen_draft_path);
             queue_draw();
         }
 
@@ -583,9 +623,9 @@ namespace Nova {
                 Render.paint_shape(cr, draft_shape, accent_color, true, zoom, true);
             }
 
-            // Paint pen tool live preview
             if (pen_draft_path != null) {
-                Render.paint_pen_preview(cr, pen_draft_path, pen_hover_pt, accent_color, zoom);
+                Point? hover = drag_mode == "pen_drag" ? null : pen_hover_pt;
+                Render.paint_pen_preview(cr, pen_draft_path, hover, accent_color, zoom);
             }
 
             // Paint node edit overlay if editing vector nodes
@@ -712,6 +752,7 @@ namespace Nova {
             right_click_gesture = new Gtk.GestureClick();
             right_click_gesture.set_button(3);
             right_click_gesture.pressed.connect((n_press, x, y) => {
+                right_click_gesture.set_state(Gtk.EventSequenceState.CLAIMED);
                 popup_context_menu(x, y);
             });
             this.add_controller(right_click_gesture);
@@ -774,6 +815,18 @@ namespace Nova {
 
             // Pen tool clicks
             if (tool == "pen") {
+                if (n_press >= 2 && pen_draft_path != null) {
+                    pen_placing = false;
+                    commit_pen_path(false, false);
+                    return;
+                }
+                if (n_press >= 2 && pen_draft_path == null) {
+                    Shape? path_hit = document.hit_test(doc_x, doc_y);
+                    if (path_hit != null && path_hit.shape_type == ShapeType.PATH) {
+                        enter_node_edit_mode(path_hit);
+                    }
+                    return;
+                }
                 if (pen_draft_path == null) {
                     pen_draft_path = new Shape(ShapeType.PATH);
                     pen_draft_path.closed = false;
@@ -781,17 +834,26 @@ namespace Nova {
                     pen_draft_path.stroke_color = pen_color;
                     pen_draft_path.stroke_width = 2.0;
                     pen_draft_path.has_stroke = true;
+                    pen_draft_path.stroke_cap = StrokeCap.ROUND;
+                    pen_draft_path.stroke_join = StrokeJoin.ROUND;
                 }
-                // Check if loop closure
                 if (pen_draft_path.nodes.length >= 2) {
                     unowned PathNode first = pen_draft_path.nodes[0];
                     double d_first = Math.hypot(doc_x - first.x, doc_y - first.y);
                     if (d_first <= 14.0 / zoom) {
-                        commit_pen_path(true, true);
+                        pen_placing = false;
+                        commit_pen_path(true, false);
                         return;
                     }
                 }
                 pen_draft_path.nodes.add(Paths.create_node(doc_x, doc_y, null, null, NodeType.CORNER));
+                pen_placing = true;
+                // The drag already started on this press. Mark the new anchor
+                // smooth so the following motion pulls its handles.
+                if (drag_mode == "pen_drag") {
+                    unowned PathNode placed = pen_draft_path.nodes[pen_draft_path.nodes.length - 1];
+                    placed.node_type = NodeType.SMOOTH;
+                }
                 Paths.path_recalculate_bounds(pen_draft_path);
                 queue_draw();
                 return;
@@ -846,6 +908,10 @@ namespace Nova {
         private void on_click_released(int n_press, double x, double y) {
             if (press_became_drag) {
                 press_became_drag = false;
+                return;
+            }
+            if (tool == "pen") {
+                pen_placing = false;
                 return;
             }
             if (n_press != 1 || space_held || !tool_places_on_click(tool)) return;
@@ -923,8 +989,15 @@ namespace Nova {
                 }
             }
 
+            // Drag-begin fires on the press itself, before the click handler
+            // places the anchor. Leaving the pen here used to fall through to
+            // shape creation, and an unknown tool name becomes a rectangle.
             if (tool == "pen") {
                 drag_mode = "pen_drag";
+                if (pen_placing && pen_draft_path != null && pen_draft_path.nodes.length > 0) {
+                    unowned PathNode placed = pen_draft_path.nodes[pen_draft_path.nodes.length - 1];
+                    placed.node_type = NodeType.SMOOTH;
+                }
                 return;
             }
 
@@ -1173,13 +1246,18 @@ namespace Nova {
                 return;
             }
 
-            if (drag_mode == "pen_drag" && pen_draft_path != null && pen_draft_path.nodes.length > 0) {
+            if (drag_mode == "pen_drag" && pen_placing && pen_draft_path != null && pen_draft_path.nodes.length > 0) {
                 unowned PathNode last = pen_draft_path.nodes[pen_draft_path.nodes.length - 1];
-                double hdx = doc_x - last.x;
-                double hdy = doc_y - last.y;
-                last.handle_out = Point(last.x + hdx, last.y + hdy);
-                last.handle_in = Point(last.x - hdx, last.y - hdy);
-                last.node_type = NodeType.SMOOTH;
+                double hx, hy;
+                snap_pen_handle(last.x, last.y, doc_x, doc_y, out hx, out hy);
+                if (alt_held) {
+                    last.node_type = NodeType.ASYMMETRIC;
+                    if (last.handle_in == null) last.handle_in = Point(last.x, last.y);
+                } else {
+                    last.node_type = NodeType.SMOOTH;
+                }
+                Paths.update_node_handle(last, "handle_out", hx, hy);
+                Paths.path_recalculate_bounds(pen_draft_path);
                 queue_draw();
                 return;
             }
@@ -1187,7 +1265,10 @@ namespace Nova {
             if (drag_mode == "handle_drag" && node_edit_shape != null) {
                 PathNode? sel_n = get_selected_node();
                 if (sel_n != null && selected_handle_name != null) {
-                    Paths.update_node_handle(sel_n, selected_handle_name, doc_x, doc_y);
+                    double hx, hy;
+                    snap_pen_handle(sel_n.x, sel_n.y, doc_x, doc_y, out hx, out hy);
+                    if (alt_held) sel_n.node_type = NodeType.ASYMMETRIC;
+                    Paths.update_node_handle(sel_n, selected_handle_name, hx, hy);
                     Paths.path_recalculate_bounds(node_edit_shape);
                     queue_draw();
                     return;
@@ -1212,6 +1293,42 @@ namespace Nova {
 
         private static double snap_px(double value) {
             return Math.round(value);
+        }
+
+        // Shift snaps to 45°. Ctrl locks the handle to horizontal or vertical.
+        private void snap_pen_handle(double ax, double ay, double x, double y, out double ox, out double oy) {
+            double dx = x - ax;
+            double dy = y - ay;
+            if (shift_held) {
+                double dist = Math.hypot(dx, dy);
+                double ang = Math.round(Math.atan2(dy, dx) / (Math.PI / 4.0)) * (Math.PI / 4.0);
+                dx = dist * Math.cos(ang);
+                dy = dist * Math.sin(ang);
+            } else if (ctrl_held) {
+                if (Math.fabs(dx) >= Math.fabs(dy)) {
+                    dy = 0.0;
+                } else {
+                    dx = 0.0;
+                }
+            }
+            ox = ax + dx;
+            oy = ay + dy;
+        }
+
+        private void collapse_tiny_pen_handles() {
+            if (pen_draft_path == null || pen_draft_path.nodes.length == 0) return;
+            unowned PathNode node = pen_draft_path.nodes[pen_draft_path.nodes.length - 1];
+            double limit = 3.0 / Math.fmax(zoom, 1e-6);
+            bool out_tiny = node.handle_out == null
+                || Math.hypot(node.handle_out.x - node.x, node.handle_out.y - node.y) < limit;
+            bool in_tiny = node.handle_in == null
+                || Math.hypot(node.handle_in.x - node.x, node.handle_in.y - node.y) < limit;
+            if (out_tiny && in_tiny) {
+                node.handle_in = null;
+                node.handle_out = null;
+                node.node_type = NodeType.CORNER;
+            }
+            Paths.path_recalculate_bounds(pen_draft_path);
         }
 
         private double corner_snap_threshold() {
@@ -1479,6 +1596,8 @@ namespace Nova {
 
         private void on_drag_end(double offset_x, double offset_y) {
             smart_guides.remove_range(0, smart_guides.length);
+            if (drag_mode == "pen_drag") collapse_tiny_pen_handles();
+            pen_placing = false;
 
             if (drag_mode == "pencil" && draft_shape != null) {
                 draft_shape.points = Geometry.smooth_points(draft_shape.points, 2);
@@ -1491,6 +1610,10 @@ namespace Nova {
                     draft_shape = null;
                 }
                 set_tool("select");
+            }
+
+            if (tool == "pen" && draft_shape != null) {
+                draft_shape = null;
             }
 
             if (drag_mode == "draw" && draft_shape != null) {
@@ -1749,61 +1872,127 @@ namespace Nova {
             }
         }
 
+        private delegate void ContextAction();
+
         private void popup_context_menu(double x, double y) {
-            var menu = new GLib.Menu();
-
-            if (selected_shapes.length > 0) {
-                var edit_section = new GLib.Menu();
-                edit_section.append("Cut", "app.cut");
-                edit_section.append("Copy", "app.copy");
-                edit_section.append("Paste", "app.paste");
-                edit_section.append("Duplicate", "app.duplicate");
-                edit_section.append("Delete", "app.delete");
-                menu.append_section(null, edit_section);
-
-                var arrange_section = new GLib.Menu();
-                arrange_section.append("Bring to Front", "app.bring-front");
-                arrange_section.append("Bring Forward", "app.bring-forward");
-                arrange_section.append("Send Backward", "app.send-backward");
-                arrange_section.append("Send to Back", "app.send-back");
-                menu.append_section(null, arrange_section);
-
-                var group_section = new GLib.Menu();
-                if (primary_selected != null && primary_selected.shape_type == ShapeType.GROUP) {
-                    group_section.append("Ungroup", "app.ungroup");
-                } else if (selected_shapes.length > 1) {
-                    group_section.append("Group", "app.group");
-                }
-                menu.append_section(null, group_section);
-
-                var path_section = new GLib.Menu();
-                path_section.append("Convert to Vector Path", "app.convert-path");
-                if (selected_shapes.length >= 2) {
-                    path_section.append("Boolean Union", "app.bool-union");
-                    path_section.append("Boolean Subtract", "app.bool-diff");
-                    path_section.append("Boolean Intersect", "app.bool-inter");
-                    path_section.append("Boolean Exclude", "app.bool-excl");
-                }
-                menu.append_section(null, path_section);
+            grab_focus();
+            double doc_x, doc_y;
+            to_document(x, y, out doc_x, out doc_y);
+            Shape? hit = document.hit_test(doc_x, doc_y);
+            if (hit != null) {
+                if (!selection_contains(hit)) select_shape(hit);
+                show_item_menu(x, y);
             } else {
-                var vp_section = new GLib.Menu();
-                vp_section.append("Select All", "app.select-all");
-                vp_section.append("Paste", "app.paste");
-                vp_section.append("Zoom to Fit", "app.zoom-fit");
-                vp_section.append("Zoom to 100%", "app.zoom-100");
-                menu.append_section(null, vp_section);
+                show_viewport_menu(x, y);
             }
+        }
 
-            var popover = new Gtk.PopoverMenu.from_model(menu);
+        private void dismiss_context_menu() {
+            if (context_popover == null) return;
+            var old = context_popover;
+            context_popover = null;
+            old.popdown();
+            old.unparent();
+        }
+
+        private Gtk.Widget context_separator() {
+            var sep = new Gtk.Separator(Gtk.Orientation.HORIZONTAL);
+            sep.margin_top = 3;
+            sep.margin_bottom = 3;
+            return sep;
+        }
+
+        private Gtk.Button context_item(string label, string shortcut, bool destructive, owned ContextAction action) {
+            var button = new Gtk.Button();
+            button.add_css_class("flat");
+            button.add_css_class("nova-context-item");
+            var row = new Gtk.Box(Gtk.Orientation.HORIZONTAL, 24);
+            var lbl = new Gtk.Label(label);
+            lbl.xalign = 0;
+            lbl.hexpand = true;
+            if (destructive) lbl.add_css_class("error");
+            row.append(lbl);
+            if (shortcut.length > 0) {
+                var accel = new Gtk.Label(shortcut);
+                accel.xalign = 1;
+                accel.add_css_class("dim-label");
+                accel.add_css_class("nova-context-accel");
+                row.append(accel);
+            }
+            button.child = row;
+            button.clicked.connect(() => {
+                dismiss_context_menu();
+                action();
+            });
+            return button;
+        }
+
+        private Gtk.Popover open_context_popover(double x, double y, Gtk.Box menu) {
+            dismiss_context_menu();
+            var popover = new Gtk.Popover();
+            popover.add_css_class("nova-context-popover");
+            popover.has_arrow = false;
             popover.set_parent(this);
             var rect = Gdk.Rectangle();
             rect.x = (int) x;
             rect.y = (int) y;
             rect.width = 1;
             rect.height = 1;
-            popover.set_pointing_to(rect);
-            popover.set_has_arrow(false);
+            popover.pointing_to = rect;
+            popover.child = menu;
+            context_popover = popover;
+            popover.closed.connect(() => {
+                if (context_popover == popover) {
+                    context_popover = null;
+                    popover.unparent();
+                }
+            });
             popover.popup();
+            return popover;
+        }
+
+        private void show_item_menu(double x, double y) {
+            var menu = new Gtk.Box(Gtk.Orientation.VERTICAL, 2);
+            menu.margin_top = 6;
+            menu.margin_bottom = 6;
+            menu.margin_start = 6;
+            menu.margin_end = 6;
+            menu.append(context_item("Group Selection", "Ctrl+G", false, () => group_selected()));
+            menu.append(context_item("Ungroup Selection", "Ctrl+Shift+G", false, () => ungroup_selected()));
+            menu.append(context_separator());
+            menu.append(context_item("Bring to Front", "Ctrl+Shift+]", false, () => bring_to_front()));
+            menu.append(context_item("Bring Forward", "Ctrl+]", false, () => bring_forward()));
+            menu.append(context_item("Send Backward", "Ctrl+[", false, () => send_backward()));
+            menu.append(context_item("Send to Back", "Ctrl+Shift+[", false, () => send_to_back()));
+            menu.append(context_separator());
+            menu.append(context_item("Copy", "Ctrl+C", false, () => copy()));
+            menu.append(context_item("Cut", "Ctrl+X", false, () => cut()));
+            menu.append(context_item("Paste", "Ctrl+V", false, () => paste()));
+            menu.append(context_item("Paste in Place", "Ctrl+Shift+V", false, () => paste_in_place()));
+            menu.append(context_separator());
+            menu.append(context_item("Zoom to Selection", "Shift+2", false, () => zoom_to_selection()));
+            menu.append(context_item("Duplicate", "Ctrl+D", false, () => duplicate_selected()));
+            menu.append(context_item("Delete", "Delete", true, () => delete_selected()));
+            open_context_popover(x, y, menu);
+        }
+
+        private void show_viewport_menu(double x, double y) {
+            var menu = new Gtk.Box(Gtk.Orientation.VERTICAL, 2);
+            menu.margin_top = 6;
+            menu.margin_bottom = 6;
+            menu.margin_start = 6;
+            menu.margin_end = 6;
+            menu.append(context_item("Paste", "Ctrl+V", false, () => paste()));
+            menu.append(context_item("Paste in Place", "Ctrl+Shift+V", false, () => paste_in_place()));
+            menu.append(context_separator());
+            menu.append(context_item("Select All", "Ctrl+A", false, () => select_all()));
+            menu.append(context_item("Invert Selection", "Ctrl+Shift+I", false, () => invert_selection()));
+            menu.append(context_separator());
+            menu.append(context_item("Zoom to Fit", "Ctrl+0", false, () => zoom_to_fit()));
+            menu.append(context_item("Zoom to 100%", "Ctrl+1", false, () => zoom_to_100()));
+            menu.append(context_separator());
+            menu.append(context_item("Deselect All", "Esc", false, () => clear_selection()));
+            open_context_popover(x, y, menu);
         }
     }
 }

@@ -941,36 +941,40 @@ namespace Nova {
 
                     if (node.handle_in != null) {
                         Point hin = node.handle_in;
-                        cr.new_path();
-                        cr.move_to(x, y);
-                        cr.line_to(hin.x, hin.y);
-                        cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.85);
-                        cr.stroke();
+                        if (Math.hypot(hin.x - x, hin.y - y) > 0.5 / z) {
+                            cr.new_path();
+                            cr.move_to(x, y);
+                            cr.line_to(hin.x, hin.y);
+                            cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.85);
+                            cr.stroke();
 
-                        cr.new_path();
-                        cr.arc(hin.x, hin.y, handle_radius, 0.0, 2.0 * Math.PI);
-                        cr.set_source_rgb(1.0, 1.0, 1.0);
-                        cr.fill_preserve();
-                        cr.set_source_rgb(accent.red, accent.green, accent.blue);
-                        cr.set_line_width(1.5 / z);
-                        cr.stroke();
+                            cr.new_path();
+                            cr.arc(hin.x, hin.y, handle_radius, 0.0, 2.0 * Math.PI);
+                            cr.set_source_rgb(1.0, 1.0, 1.0);
+                            cr.fill_preserve();
+                            cr.set_source_rgb(accent.red, accent.green, accent.blue);
+                            cr.set_line_width(1.5 / z);
+                            cr.stroke();
+                        }
                     }
 
                     if (node.handle_out != null) {
                         Point hout = node.handle_out;
-                        cr.new_path();
-                        cr.move_to(x, y);
-                        cr.line_to(hout.x, hout.y);
-                        cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.85);
-                        cr.stroke();
+                        if (Math.hypot(hout.x - x, hout.y - y) > 0.5 / z) {
+                            cr.new_path();
+                            cr.move_to(x, y);
+                            cr.line_to(hout.x, hout.y);
+                            cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.85);
+                            cr.stroke();
 
-                        cr.new_path();
-                        cr.arc(hout.x, hout.y, handle_radius, 0.0, 2.0 * Math.PI);
-                        cr.set_source_rgb(1.0, 1.0, 1.0);
-                        cr.fill_preserve();
-                        cr.set_source_rgb(accent.red, accent.green, accent.blue);
-                        cr.set_line_width(1.5 / z);
-                        cr.stroke();
+                            cr.new_path();
+                            cr.arc(hout.x, hout.y, handle_radius, 0.0, 2.0 * Math.PI);
+                            cr.set_source_rgb(1.0, 1.0, 1.0);
+                            cr.fill_preserve();
+                            cr.set_source_rgb(accent.red, accent.green, accent.blue);
+                            cr.set_line_width(1.5 / z);
+                            cr.stroke();
+                        }
                     }
                     cr.restore();
                 }
@@ -1038,8 +1042,12 @@ namespace Nova {
 
             cr.new_path();
             trace_shape(cr, draft_path);
-            cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.9);
-            cr.set_line_width(2.0 / z);
+            Color ink = draft_path.has_stroke ? draft_path.stroke_color : draft_path.color;
+            double sw = draft_path.stroke_width > 0.0 ? draft_path.stroke_width : 2.0;
+            cr.set_source_rgba(ink.red, ink.green, ink.blue, 0.95);
+            cr.set_line_width(sw);
+            cr.set_line_cap(Cairo.LineCap.ROUND);
+            cr.set_line_join(Cairo.LineJoin.ROUND);
             cr.stroke();
 
             bool is_closing = false;
@@ -1055,13 +1063,18 @@ namespace Nova {
                     target = Point(first.x, first.y);
                 }
 
+                Point p0 = Point(last.x, last.y);
+                Point p1 = last.handle_out != null ? last.handle_out : p0;
+                Point p3 = target;
+                Point p2 = p3;
+                if (is_closing && first.handle_in != null) p2 = first.handle_in;
+
                 cr.new_path();
-                cr.move_to(last.x, last.y);
-                if (last.handle_out != null) {
-                    Point hout = last.handle_out;
-                    cr.curve_to(hout.x, hout.y, target.x, target.y, target.x, target.y);
+                cr.move_to(p0.x, p0.y);
+                if (p1.equals(p0) && p2.equals(p3)) {
+                    cr.line_to(p3.x, p3.y);
                 } else {
-                    cr.line_to(target.x, target.y);
+                    cr.curve_to(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
                 }
                 double[] dashes = { 5.0 / z, 4.0 / z };
                 cr.set_dash(dashes, 0.0);
@@ -1072,7 +1085,9 @@ namespace Nova {
                 if (is_closing) {
                     cr.set_dash(new double[0], 0.0);
                     cr.new_path();
-                    cr.arc(first.x + 11.0 / z, first.y - 11.0 / z, 3.5 / z, 0.0, 2.0 * Math.PI);
+                    cr.arc(first.x, first.y, 8.0 / z, 0.0, 2.0 * Math.PI);
+                    cr.set_source_rgba(accent.red, accent.green, accent.blue, 0.18);
+                    cr.fill_preserve();
                     cr.set_source_rgb(accent.red, accent.green, accent.blue);
                     cr.set_line_width(1.5 / z);
                     cr.stroke();
